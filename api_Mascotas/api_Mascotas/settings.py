@@ -25,7 +25,7 @@ SECRET_KEY = "django-insecure-6pn5=s*^b9_=walbq61m#=(l%a#yjd(8k$etxrt2b&(hv*)gcq
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [ '*' ]
 
 
 # Application definition
@@ -73,15 +73,21 @@ TEMPLATES = [
 WSGI_APPLICATION = "api_Mascotas.wsgi.application"
 
 
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'Mascotas',
+        'USER': 'postgres',
+        'PASSWORD': '12345678',
+        'HOST': 'localhost',
+        'PORT': '5432',
+    }
+}
+
+
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
-    }
-}
 
 
 # Password validation
@@ -106,9 +112,9 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/5.1/topics/i18n/
 
-LANGUAGE_CODE = "en-us"
+LANGUAGE_CODE = "es-co"
 
-TIME_ZONE = "UTC"
+TIME_ZONE = "UTC-5"
 
 USE_I18N = True
 
