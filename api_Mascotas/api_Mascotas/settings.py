@@ -26,6 +26,7 @@ SECRET_KEY = "django-insecure-6pn5=s*^b9_=walbq61m#=(l%a#yjd(8k$etxrt2b&(hv*)gcq
 DEBUG = True
 
 ALLOWED_HOSTS = [ '*' ]
+CORS_ALLOW_ALL_ORIGINS = True
 
 
 # Application definition
@@ -43,6 +44,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -114,7 +116,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = "es-co"
 
-TIME_ZONE = "UTC-5"
+TIME_ZONE = "America/Bogota"
 
 USE_I18N = True
 
