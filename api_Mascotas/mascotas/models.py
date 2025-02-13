@@ -13,5 +13,3 @@ class Mascota(models.Model):
     fecha_creacion = models.DateTimeField(default=datetime.now)
     def __str__(self):
         return self.nombre
-    def age(self):
-        return datetime.now().year - self.fecha_nacimiento.year

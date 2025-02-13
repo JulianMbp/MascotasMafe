@@ -16,8 +16,8 @@ class MascotaView(APIView):
         serializer = MascotaSerializer(mascotas, many=True)
         return Response(serializer.data)
     
-    def post(self,request,*args,**kwargs):
-        serializer = MascotaSerializer(data=request.data)
+    def post(self, request, *args, **kwargs):
+        # Crear el diccionario con los datos
         data = {
             'nombre': request.data.get('nombre'),
             'peso': request.data.get('peso'),
@@ -26,21 +26,23 @@ class MascotaView(APIView):
             'raza': request.data.get('raza'),
             'fecha_nacimiento': request.data.get('fecha_nacimiento'),
         }
-        serializer = MascotaSerializer(data=data)
-        if serializer.is_valid():
-            serializer.save()
+
+        # Usar el serializer para validar y guardar
+        serializador = MascotaSerializer(data=data)
+        if serializador.is_valid():
+            serializador.save()
             return Response(
                 {
-                    'message': 'Mascota creada correctamente',
-                    'data': serializer.data
+                    "message": "Mascota creada con éxito",
+                    "data": serializador.data,
                 },
                 status=status.HTTP_201_CREATED
             )
         else:
             return Response(
                 {
-                    'message': 'Error al crear la mascota',
-                    'data': serializer.errors
+                    "message": "Error al crear mascota",
+                    "data": serializador.errors,
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
