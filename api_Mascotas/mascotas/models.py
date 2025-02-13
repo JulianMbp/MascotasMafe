@@ -9,7 +9,7 @@ class Mascota(models.Model):
     edad = models.IntegerField()
     especie = models.CharField(max_length=100)
     raza = models.CharField(max_length=100)
-    fecha_nacimiento = models.DateField()
+    fecha_nacimiento = models.DateField(null=True, blank=True)
     fecha_creacion = models.DateTimeField(default=datetime.now)
     def __str__(self):
         return self.nombre
