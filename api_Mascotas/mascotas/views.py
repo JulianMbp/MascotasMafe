@@ -11,18 +11,55 @@ import base64
 # Create your views here.
 
 class MascotaView(APIView):
-    def get(self,request,*args,**kwargs):
-        mascotas = Mascota.objects.all()
-        serializer = MascotaSerializer(mascotas, many=True)
-        return Response(serializer.data)
+    def get(self, request, *args, **kwargs):
+        # Verificar si se proporciona un 'pk' o un 'nombre'
+        if 'pk' in kwargs:
+            id = kwargs['pk']
+            try:
+                mascota = Mascota.objects.get(id=id)
+                serializer = MascotaSerializer(mascota)
+                return Response(serializer.data)
+            except Mascota.DoesNotExist:
+                return Response(
+                    {
+                        'message': 'Mascota no encontrada',
+                    },
+                    status=status.HTTP_404_NOT_FOUND
+                )
+        elif 'nombre' in request.query_params:
+            nombre = request.query_params['nombre']
+            try:
+                mascota = Mascota.objects.get(nombre=nombre)
+                serializer = MascotaSerializer(mascota)
+                return Response(serializer.data)
+            except Mascota.DoesNotExist:
+                return Response(
+                    {
+                        'message': 'Mascota no encontrada',
+                    },
+                    status=status.HTTP_404_NOT_FOUND
+                )
+        else:
+            # Este bloque maneja la lista de todas las mascotas
+            mascotas = Mascota.objects.all()
+            serializer = MascotaSerializer(mascotas, many=True)
+            return Response(serializer.data)
     
     def post(self, request, *args, **kwargs):
         # Crear el diccionario con los datos
+        imagen = request.FILES.get('imagen')
+        if imagen:
+            imagen_bytes = imagen.read()
+            imagen_base64 = base64.b64encode(imagen_bytes).decode('utf-8')
+        else:
+            imagen_base64 = None
+
         data = {
             'nombre': request.data.get('nombre'),
             'peso': request.data.get('peso'),
             'edad': request.data.get('edad'),
             'especie': request.data.get('especie'),
+            'imagen': imagen_base64,
             'raza': request.data.get('raza'),
             'fecha_nacimiento': request.data.get('fecha_nacimiento'),
         }
@@ -53,6 +90,7 @@ class MascotaView(APIView):
             peso=request.data.get('peso'),
             edad=request.data.get('edad'),
             especie=request.data.get('especie'),
+            imagen=request.data.get('imagen'),
             raza=request.data.get('raza'),
             fecha_nacimiento=request.data.get('fecha_nacimiento'),
         )
@@ -73,16 +111,3 @@ class MascotaView(APIView):
             },
             status=status.HTTP_200_OK
         )
-    def get_id(self,request,*args,**kwargs):
-        id = kwargs['pk']
-        if id:
-            mascota = Mascota.objects.get(id=id)
-            serializer = MascotaSerializer(mascota)
-            return Response(serializer.data)
-        else:
-            return Response(
-                {
-                    'message': 'Mascota no encontrada',
-                },
-                status=status.HTTP_404_NOT_FOUND
-            )
