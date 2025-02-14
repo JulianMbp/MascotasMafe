@@ -7,6 +7,11 @@ class MascotaSimpleSerializer(serializers.ModelSerializer):
         model = Mascota
         fields = ['id', 'nombre', 'especie', 'raza', 'imagen', 'fecha_nacimiento']
 
+class DueñoSimpleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Dueño
+        fields = ['id', 'nombre', 'apellido', 'telefono']
+
 class DueñoSerializer(serializers.ModelSerializer):
     mascotas = MascotaSimpleSerializer(many=True, read_only=True)
 

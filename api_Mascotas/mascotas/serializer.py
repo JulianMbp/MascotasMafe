@@ -1,9 +1,9 @@
 from rest_framework import serializers
 from .models import Mascota
-from dueño.serializer import DueñoSerializer
+from dueño.serializer import DueñoSimpleSerializer
 
 class MascotaSerializer(serializers.ModelSerializer):
-    dueño_info = DueñoSerializer(source='dueño', read_only=True)
+    dueño_info = DueñoSimpleSerializer(source='dueño', read_only=True)
 
     class Meta:
         model = Mascota
