@@ -79,7 +79,7 @@ WSGI_APPLICATION = "api_Mascotas.wsgi.application"
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'Mascotas',
+        'NAME': 'Pets',
         'USER': 'postgres',
         'PASSWORD': '12345678',
         'HOST': 'localhost',
