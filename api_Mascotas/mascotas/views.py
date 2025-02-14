@@ -62,6 +62,7 @@ class MascotaView(APIView):
             'imagen': imagen_base64,
             'raza': request.data.get('raza'),
             'fecha_nacimiento': request.data.get('fecha_nacimiento'),
+            'dueño': request.data.get('dueño'),
         }
 
         # Usar el serializer para validar y guardar

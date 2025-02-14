@@ -42,6 +42,8 @@ INSTALLED_APPS = [
     "corsheaders",
     "api_Mascotas",
     "mascotas",
+    "dueño",
+    "location",
 ]
 
 MIDDLEWARE = [
