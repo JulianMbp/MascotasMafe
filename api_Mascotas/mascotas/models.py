@@ -13,5 +13,10 @@ class Mascota(models.Model):
     fecha_nacimiento = models.DateField(null=True, blank=True)
     fecha_creacion = models.DateTimeField(default=datetime.now)
     dueño = models.ForeignKey('dueño.Dueño', on_delete=models.CASCADE, related_name='mascotas')
+    
+    @property
+    def ultima_ubicacion(self):
+        return self.locations.filter(is_active=True).first()
+    
     def __str__(self):
         return self.nombre

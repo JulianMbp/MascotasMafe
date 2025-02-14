@@ -19,8 +19,11 @@ from django.contrib import admin
 from django.urls import path, include
 from mascotas import urls as mascotas_urls
 from dueño import urls as dueño_urls
+from location import urls as location_urls
+
 urlpatterns = [
     path("admin/", admin.site.urls),
     path('mascotas/', include(mascotas_urls)),
     path('dueño/', include(dueño_urls)),
+    path('location/', include(location_urls)),
 ]
