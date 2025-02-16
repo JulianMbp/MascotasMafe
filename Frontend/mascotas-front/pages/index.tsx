@@ -5,7 +5,7 @@ export default function Home() {
     <div className="">
       <Header />
       <div className="flex flex-col items-center justify-center h-screen">
-        <h1 className="text-4xl font-bold text-center ">Bienvenido a la página de inicio</h1>
+        <h1 className="text-4xl font-bold text-center ">Bienvenido a la página de inicio Villa Mafe</h1>
       </div>
     </div>
   );
