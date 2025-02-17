@@ -32,7 +32,6 @@ export default function Mascotas() {
       const response = await axios.get('http://127.0.0.1:8000/mascotas/mascotas_list');
       console.log('Respuesta del servidor:', response.data);
       
-      // Verificar la estructura de los datos de la mascota
       response.data.forEach((mascota: Mascota) => {
         console.log(`Mascota ${mascota.id}:`, {
           nombre: mascota.nombre,
@@ -51,7 +50,6 @@ export default function Mascotas() {
     if (window.confirm('¿Estás seguro de que deseas eliminar esta mascota?')) {
       try {
         await axios.delete(`http://127.0.0.1:8000/mascotas/mascotas_delete/${id}`);
-        // Actualizar la lista después de eliminar
         fetchMascotas();
         alert('Mascota eliminada con éxito');
       } catch (error) {
