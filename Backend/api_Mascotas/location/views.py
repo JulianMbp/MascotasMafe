@@ -6,6 +6,8 @@ from .models import Location
 from .serializer import LocationSerializer
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
+from django.utils import timezone
+from datetime import timedelta
 
 # Create your views here.
 
@@ -53,6 +55,9 @@ class LocationView(APIView):
 class LocationMobileView(APIView):
     def post(self, request, *args, **kwargs):
         try:
+            # Limpiar ubicaciones antiguas
+            self.clean_old_locations(request.data.get('mascota'))
+            
             # Obtener datos de la app móvil
             data = {
                 'latitude': request.data.get('latitud'),
@@ -60,16 +65,14 @@ class LocationMobileView(APIView):
                 'mascota': request.data.get('mascota')
             }
 
-            # Verificar que la mascota existe antes de continuar
+            # Verificar que la mascota existe
             if not data['mascota']:
                 return Response(
-                    {
-                        'mensaje': 'Error: ID de mascota no proporcionado',
-                    },
+                    {'mensaje': 'Error: ID de mascota no proporcionado'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-            # Crear nueva ubicación sin desactivar las anteriores
+            # Crear nueva ubicación
             serializer = LocationSerializer(data=data)
             if serializer.is_valid():
                 serializer.save()
@@ -95,3 +98,12 @@ class LocationMobileView(APIView):
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
+
+    def clean_old_locations(self, mascota_id):
+        """Elimina ubicaciones antiguas de la mascota específica"""
+        if mascota_id:
+            # Eliminar ubicaciones de días anteriores para esta mascota
+            Location.objects.filter(
+                mascota_id=mascota_id,
+                created_at__date__lt=timezone.now().date()
+            ).delete()
