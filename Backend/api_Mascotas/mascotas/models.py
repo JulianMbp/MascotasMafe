@@ -16,7 +16,7 @@ class Mascota(models.Model):
     
     @property
     def ultima_ubicacion(self):
-        return self.locations.filter(is_active=True).first()
+        return self.locations.order_by('-created_at').first()
     
     def __str__(self):
         return self.nombre

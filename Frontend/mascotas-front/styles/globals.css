@@ -1,3 +1,41 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Estilos para el mapa de Leaflet */
+.leaflet-container {
+  @apply rounded-lg;
+}
+
+.leaflet-popup-content-wrapper {
+  @apply rounded-lg shadow-lg;
+}
+
+.leaflet-popup-content {
+  @apply p-0 m-0;
+}
+
+/* Estilos para los marcadores de mascotas */
+.custom-pet-marker {
+  background: none !important;
+}
+
+.pet-marker-container {
+  position: relative;
+  width: 40px;
+  height: 40px;
+}
+
+.pet-marker-image {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 2px solid white;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+  object-fit: cover;
+}
+
+/* Ajuste para el contenedor del popup */
+.leaflet-popup {
+  margin-bottom: 20px;
+}

@@ -13,9 +13,15 @@ class MascotaSerializer(serializers.ModelSerializer):
                 'fecha_nacimiento', 'fecha_creacion', 'dueño', 'dueño_info', 'ultima_ubicacion']
 
     def get_ultima_ubicacion(self, obj):
-        ultima_location = obj.locations.filter(is_active=True).first()
+        # Obtener la última ubicación por fecha de creación
+        ultima_location = obj.locations.order_by('-created_at').first()
         if ultima_location:
-            return LocationSerializer(ultima_location).data
+            return {
+                'id': ultima_location.id,
+                'latitude': ultima_location.latitude,
+                'longitude': ultima_location.longitude,
+                'created_at': ultima_location.created_at
+            }
         return None
 
     def to_representation(self, instance):

@@ -1,0 +1,33 @@
+.container {
+  width: 100%;
+  min-height: 100vh;
+  padding: 20px;
+}
+
+.mapContainer {
+  margin-top: 20px;
+}
+
+.mapContainer h1 {
+  margin-bottom: 20px;
+  color: #333;
+}
+
+.popupContent {
+  text-align: center;
+  padding: 10px;
+}
+
+.mascotaFoto {
+  width: 100px;
+  height: 100px;
+  object-fit: cover;
+  border-radius: 50%;
+  margin: 10px 0;
+}
+
+/* Estilos adicionales para el mapa */
+:global(.leaflet-container) {
+  border-radius: 10px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+} 

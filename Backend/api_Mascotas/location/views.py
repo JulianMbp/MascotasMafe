@@ -8,6 +8,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.utils import timezone
 from datetime import timedelta
+from rest_framework.decorators import api_view
 
 # Create your views here.
 
@@ -55,8 +56,8 @@ class LocationView(APIView):
 class LocationMobileView(APIView):
     def post(self, request, *args, **kwargs):
         try:
-            # Limpiar ubicaciones antiguas
-            self.clean_old_locations(request.data.get('mascota'))
+            # Ya no llamamos a clean_old_locations aquí
+            # self.clean_old_locations(request.data.get('mascota'))
             
             # Obtener datos de la app móvil
             data = {
@@ -99,11 +100,34 @@ class LocationMobileView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+    # Opcional: Mantener este método pero modificado para limpiar ubicaciones muy antiguas
     def clean_old_locations(self, mascota_id):
-        """Elimina ubicaciones antiguas de la mascota específica"""
+        """Limpia ubicaciones más antiguas que una semana"""
         if mascota_id:
-            # Eliminar ubicaciones de días anteriores para esta mascota
+            # Mantener solo una semana de historial
+            week_ago = timezone.now() - timedelta(days=7)
             Location.objects.filter(
                 mascota_id=mascota_id,
-                created_at__date__lt=timezone.now().date()
+                created_at__lt=week_ago
             ).delete()
+
+@api_view(['GET'])
+def get_latest_locations(request):
+    try:
+        last_id = request.query_params.get('last_id', 0)
+        
+        # Obtener ubicaciones más recientes que el último ID
+        latest_locations = Location.objects.filter(
+            id__gt=last_id
+        ).select_related('mascota').order_by('id')  # Ordenar por ID ascendente
+        
+        print(f"Fetching locations after ID {last_id}. Found {latest_locations.count()} new locations.")
+        
+        serializer = LocationSerializer(latest_locations, many=True)
+        return Response(serializer.data)
+    except Exception as e:
+        print(f"Error in get_latest_locations: {str(e)}")
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
