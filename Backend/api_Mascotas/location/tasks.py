@@ -1,13 +1,13 @@
 from django.utils import timezone
-from datetime import timedelta
 from .models import Location
+from celery import shared_task
 
+@shared_task
 def clean_old_locations():
-    """
-    Tarea programada para limpiar ubicaciones más antiguas que una semana
-    """
-    week_ago = timezone.now() - timedelta(days=7)
-    old_locations = Location.objects.filter(created_at__lt=week_ago)
-    count = old_locations.count()
-    old_locations.delete()
-    print(f"Cleaned {count} old locations") 
+    """Tarea programada para limpiar ubicaciones antiguas"""
+    try:
+        today = timezone.now().date()
+        deleted_count = Location.objects.filter(created_at__date__lt=today).delete()[0]
+        print(f"Se eliminaron {deleted_count} ubicaciones antiguas")
+    except Exception as e:
+        print(f"Error al limpiar ubicaciones antiguas: {str(e)}") 

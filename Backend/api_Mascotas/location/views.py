@@ -14,6 +14,9 @@ from rest_framework.decorators import api_view
 
 class LocationView(APIView):
     def get(self, request, *args, **kwargs):
+        # Limpiar ubicaciones antiguas antes de devolver resultados
+        self.clean_old_locations()
+        
         if 'mascota_id' in request.query_params:
             # Obtener la última ubicación de una mascota específica
             locations = Location.objects.filter(
@@ -27,8 +30,11 @@ class LocationView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # Obtener todas las ubicaciones
-        locations = Location.objects.all().order_by('-created_at')  # Ordenar por fecha de creación descendente
+        # Obtener solo las ubicaciones de hoy
+        today = timezone.now().date()
+        locations = Location.objects.filter(
+            created_at__date=today
+        ).order_by('-created_at')
         serializer = LocationSerializer(locations, many=True)
         return Response(serializer.data)
 
@@ -51,6 +57,14 @@ class LocationView(APIView):
             },
             status=status.HTTP_400_BAD_REQUEST
         )
+
+    def clean_old_locations(self):
+        """Elimina las ubicaciones de días anteriores"""
+        try:
+            today = timezone.now().date()
+            Location.objects.filter(created_at__date__lt=today).delete()
+        except Exception as e:
+            print(f"Error al limpiar ubicaciones antiguas: {str(e)}")
 
 @method_decorator(csrf_exempt, name='dispatch')
 class LocationMobileView(APIView):
@@ -114,14 +128,17 @@ class LocationMobileView(APIView):
 @api_view(['GET'])
 def get_latest_locations(request):
     try:
+        # Limpiar ubicaciones antiguas
+        today = timezone.now().date()
+        Location.objects.filter(created_at__date__lt=today).delete()
+        
         last_id = request.query_params.get('last_id', 0)
         
-        # Obtener ubicaciones más recientes que el último ID
+        # Obtener solo ubicaciones de hoy
         latest_locations = Location.objects.filter(
-            id__gt=last_id
-        ).select_related('mascota').order_by('id')  # Ordenar por ID ascendente
-        
-        print(f"Fetching locations after ID {last_id}. Found {latest_locations.count()} new locations.")
+            id__gt=last_id,
+            created_at__date=today
+        ).select_related('mascota').order_by('id')
         
         serializer = LocationSerializer(latest_locations, many=True)
         return Response(serializer.data)
