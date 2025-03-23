@@ -47,22 +47,36 @@ export default function Header() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      {/* El botón de retroceso fuera del contenedor principal para asegurar que esté en primer plano */}
+      {showBackButton() && (
+        <TouchableOpacity 
+          onPress={handleGoBack} 
+          style={styles.absoluteBackButton}
+          activeOpacity={0.7}
+        >
+          <Icon name="arrow-left" size={32} color="#00bf97" />
+        </TouchableOpacity>
+      )}
+
       <View style={styles.container}>
-        <View style={styles.logoContainer}>
-          <Image
-            source={require('../../assets/Club can-pestre.png')}
-            style={styles.logo}
-            resizeMode="contain"
-          />
+        {/* Espacio a la izquierda para el botón */}
+        <View style={styles.leftSection} />
+        
+        {/* Título en el centro */}
+        <View style={styles.centerSection}>
+          <Text style={styles.title}>{getTabTitle()}</Text>
         </View>
         
-        {showBackButton() && (
-          <TouchableOpacity onPress={handleGoBack} style={styles.backButton}>
-            <Icon name="arrow-left" size={24} color="#000000" />
-          </TouchableOpacity>
-        )}
-        
-        <Text style={styles.title}>{getTabTitle()}</Text>
+        {/* Logo a la derecha */}
+        <View style={styles.rightSection}>
+          <View style={styles.logoContainer}>
+            <Image
+              source={require('../../assets/Club can-pestre.png')}
+              style={styles.logo}
+              resizeMode="contain"
+            />
+          </View>
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -74,31 +88,54 @@ const styles = StyleSheet.create({
     paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
+    position: 'relative', // Para posicionar el botón absoluto
   },
   container: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'flex-start',
+    justifyContent: 'space-between',
     paddingHorizontal: 15,
     paddingVertical: 10,
     height: 60,
   },
+  absoluteBackButton: {
+    position: 'absolute',
+    left: 15,
+    top: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) + 14 : 20,
+    zIndex: 999, // Asegurar que esté por encima de todo
+    backgroundColor: 'white',
+    borderRadius: 30,
+    padding: 5,
+    elevation: 5, // Para Android
+    shadowColor: '#000', // Para iOS
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+  },
+  leftSection: {
+    flex: 1,
+    alignItems: 'flex-start',
+  },
+  centerSection: {
+    flex: 2,
+    alignItems: 'center',
+  },
+  rightSection: {
+    flex: 1,
+    alignItems: 'flex-end',
+  },
   logoContainer: {
     width: 40,
     height: 40,
-    marginRight: 10,
   },
   logo: {
     width: '100%',
     height: '100%',
   },
-  backButton: {
-    padding: 8,
-    marginRight: 10,
-  },
   title: {
-    fontSize: 28,
+    fontSize: 22,
     fontWeight: 'bold',
     color: '#00bf97',
+    textAlign: 'center',
   },
 }); 
