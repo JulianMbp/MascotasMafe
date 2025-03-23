@@ -1,11 +1,13 @@
 import { useNavigation, useRoute } from '@react-navigation/native';
-import React from 'react';
-import { Image, Platform, SafeAreaView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useRef } from 'react';
+import { Animated, Image, Platform, SafeAreaView, StatusBar, StyleSheet, Text, TouchableWithoutFeedback, View } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
 export default function Header() {
   const route = useRoute();
   const navigation = useNavigation();
+  const animatedButtonValue = useRef(new Animated.Value(1)).current;
+  const animatedRotateValue = useRef(new Animated.Value(0)).current;
   
   // Obtener el título de la pestaña actual
   const getTabTitle = () => {
@@ -13,7 +15,7 @@ export default function Header() {
       case 'Home':
         return 'Inicio';
       case 'Profile':
-        return 'Perfil';
+        return 'Dueños';
       case 'Pets':
         return 'Mascotas';
       case 'Location':
@@ -40,22 +42,66 @@ export default function Header() {
     return !mainScreens.includes(route.name);
   };
 
+  // Animación del botón
+  const animateButton = () => {
+    // Animación de escala
+    Animated.sequence([
+      Animated.timing(animatedButtonValue, {
+        toValue: 0.8,
+        duration: 100,
+        useNativeDriver: true,
+      }),
+      Animated.spring(animatedButtonValue, {
+        toValue: 1,
+        friction: 5,
+        tension: 40,
+        useNativeDriver: true,
+      })
+    ]).start();
+    
+    // Animación de rotación
+    Animated.timing(animatedRotateValue, {
+      toValue: 1,
+      duration: 200,
+      useNativeDriver: true,
+    }).start(() => {
+      animatedRotateValue.setValue(0); // Resetear para la próxima animación
+    });
+  };
+
   // Manejar la acción de regresar
   const handleGoBack = () => {
-    navigation.goBack();
+    animateButton();
+    setTimeout(() => {
+      navigation.goBack();
+    }, 150);
   };
+
+  // Interpolación para la rotación
+  const spin = animatedRotateValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '-30deg']
+  });
 
   return (
     <SafeAreaView style={styles.safeArea}>
       {/* El botón de retroceso fuera del contenedor principal para asegurar que esté en primer plano */}
       {showBackButton() && (
-        <TouchableOpacity 
-          onPress={handleGoBack} 
-          style={styles.absoluteBackButton}
-          activeOpacity={0.7}
-        >
-          <Icon name="arrow-left" size={32} color="#00bf97" />
-        </TouchableOpacity>
+        <TouchableWithoutFeedback onPress={handleGoBack}>
+          <Animated.View 
+            style={[
+              styles.absoluteBackButton,
+              { 
+                transform: [
+                  { scale: animatedButtonValue },
+                  { rotate: spin }
+                ] 
+              }
+            ]}
+          >
+            <Icon name="arrow-left" size={32} color="#00bf97" />
+          </Animated.View>
+        </TouchableWithoutFeedback>
       )}
 
       <View style={styles.container}>

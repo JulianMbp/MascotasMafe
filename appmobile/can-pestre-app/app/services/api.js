@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // URL base de la API - Asegúrate de cambiar esto según tu configuración local
-const API_URL = 'http://127.0.0.1:8000/';  // URL corregida sin el segmento /api/
+const API_URL = 'https://81da-186-99-161-251.ngrok-free.app';  // cambiar por url de ngrok
 
 // Creando una instancia de axios con la URL base
 const apiClient = axios.create({
