@@ -1,4 +1,5 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import React from 'react';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
@@ -9,8 +10,43 @@ import Location from '../tabs/Location/Location';
 import Pets from '../tabs/Pets/Pets';
 import Profile from '../tabs/Profile/Profile';
 import Header from './Header';
+import OwnerDetail from './OwnerDetail';
+import OwnerForm from './OwnerForm';
+import PetDetail from './PetDetail';
+import PetForm from './PetForm';
 
 const Tab = createBottomTabNavigator();
+const PetsStack = createNativeStackNavigator();
+const ProfileStack = createNativeStackNavigator();
+
+function PetsStackScreen() {
+  return (
+    <PetsStack.Navigator
+      screenOptions={{
+        headerShown: false,
+      }}
+    >
+      <PetsStack.Screen name="PetsList" component={Pets} />
+      <PetsStack.Screen name="PetDetail" component={PetDetail} />
+      <PetsStack.Screen name="PetForm" component={PetForm} />
+    </PetsStack.Navigator>
+  );
+}
+
+function ProfileStackScreen() {
+  return (
+    <ProfileStack.Navigator
+      screenOptions={{
+        headerShown: false,
+      }}
+    >
+      <ProfileStack.Screen name="ProfileMain" component={Profile} />
+      <ProfileStack.Screen name="OwnerDetail" component={OwnerDetail} />
+      <ProfileStack.Screen name="OwnerForm" component={OwnerForm} />
+      <ProfileStack.Screen name="PetDetail" component={PetDetail} />
+    </ProfileStack.Navigator>
+  );
+}
 
 export default function Navbar() {
   return (
@@ -41,7 +77,7 @@ export default function Navbar() {
       />
       <Tab.Screen 
         name="Profile" 
-        component={Profile} 
+        component={ProfileStackScreen} 
         options={{
           tabBarLabel: 'Perfil',
           tabBarIcon: ({ color, size }) => (
@@ -51,7 +87,7 @@ export default function Navbar() {
       />
       <Tab.Screen 
         name="Pets" 
-        component={Pets} 
+        component={PetsStackScreen} 
         options={{
           tabBarLabel: 'Mascotas',
           tabBarIcon: ({ color, size }) => (

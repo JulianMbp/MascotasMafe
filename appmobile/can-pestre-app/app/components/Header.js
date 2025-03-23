@@ -1,9 +1,11 @@
-import { useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import React from 'react';
-import { Image, Platform, SafeAreaView, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { Image, Platform, SafeAreaView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
 export default function Header() {
   const route = useRoute();
+  const navigation = useNavigation();
   
   // Obtener el título de la pestaña actual
   const getTabTitle = () => {
@@ -18,9 +20,29 @@ export default function Header() {
         return 'Ubicación';
       case 'LiveTracking':
         return 'En vivo';
+      case 'PetDetail':
+        return 'Detalles';
+      case 'PetForm':
+        return 'Formulario';
+      case 'OwnerDetail':
+        return 'Detalles de Dueño';
+      case 'OwnerForm':
+        return 'Formulario de Dueño';
       default:
         return '';
     }
+  };
+
+  // Determinar si se debe mostrar el botón de regreso
+  const showBackButton = () => {
+    // Pantallas principales que no necesitan botón de regreso
+    const mainScreens = ['Home', 'Profile', 'Pets', 'Location', 'LiveTracking'];
+    return !mainScreens.includes(route.name);
+  };
+
+  // Manejar la acción de regresar
+  const handleGoBack = () => {
+    navigation.goBack();
   };
 
   return (
@@ -33,6 +55,13 @@ export default function Header() {
             resizeMode="contain"
           />
         </View>
+        
+        {showBackButton() && (
+          <TouchableOpacity onPress={handleGoBack} style={styles.backButton}>
+            <Icon name="arrow-left" size={24} color="#000000" />
+          </TouchableOpacity>
+        )}
+        
         <Text style={styles.title}>{getTabTitle()}</Text>
       </View>
     </SafeAreaView>
@@ -62,6 +91,10 @@ const styles = StyleSheet.create({
   logo: {
     width: '100%',
     height: '100%',
+  },
+  backButton: {
+    padding: 8,
+    marginRight: 10,
   },
   title: {
     fontSize: 28,
