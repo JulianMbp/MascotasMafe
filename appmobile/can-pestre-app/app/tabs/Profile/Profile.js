@@ -2,80 +2,86 @@ import { useNavigation } from '@react-navigation/native';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import OwnerCard from '../../components/OwnerCard';
 import { fetchDueños, fetchMascotas } from '../../services/api';
 
-export default function Profile() {
-  const [dueños, setDueños] = useState([]);
-  const [mascotas, setMascotas] = useState([]);
+export default function Profile({ route }) {
+  const [owners, setOwners] = useState([]);
+  const [pets, setPets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const navigation = useNavigation();
 
-  const loadData = async () => {
+  // Verificar si hay parámetros de needsRefresh en la ruta
+  const needsRefresh = route?.params?.needsRefresh || false;
+
+  const loadData = async (forceRefresh = false) => {
     try {
-      setLoading(true);
+      if (!forceRefresh && !refreshing) {
+        setLoading(true);
+      }
       setError(null);
+      
+      // Usar Promise.all para cargar dueños y mascotas paralelamente
       const [dueñosData, mascotasData] = await Promise.all([
-        fetchDueños(),
-        fetchMascotas()
+        fetchDueños(forceRefresh),
+        fetchMascotas(forceRefresh)
       ]);
-      setDueños(dueñosData);
-      setMascotas(mascotasData);
+      
+      setOwners(dueñosData);
+      setPets(mascotasData);
     } catch (err) {
       console.error('Error al cargar datos:', err);
       setError('No se pudieron cargar los datos. Por favor, intenta nuevamente.');
     } finally {
       setLoading(false);
       setRefreshing(false);
+      
+      // Limpiar el parámetro de needsRefresh si existe
+      if (route.params?.needsRefresh) {
+        navigation.setParams({ needsRefresh: false });
+      }
     }
   };
 
   useEffect(() => {
-    loadData();
+    // Cargar datos con caché si no se requiere refresco
+    loadData(needsRefresh);
 
-    // Agrega un listener para refrescar la lista cuando navegues de regreso a esta pantalla
+    // Listener para cuando volvemos a esta pantalla
     const unsubscribe = navigation.addListener('focus', () => {
-      loadData();
+      const focusNeedsRefresh = route.params?.needsRefresh || false;
+      if (focusNeedsRefresh) {
+        console.log('Forzando refresco de dueños por needsRefresh');
+        loadData(true); // Forzar refresco si es necesario
+      }
     });
 
     return unsubscribe;
-  }, [navigation]);
+  }, [navigation, route.params?.needsRefresh]);
 
   const onRefresh = () => {
     setRefreshing(true);
-    loadData();
+    loadData(true); // Siempre forzar refresco en pull-to-refresh
+  };
+
+  const handleOwnerPress = (owner) => {
+    navigation.navigate('OwnerDetail', { 
+      dueño: owner, 
+      mascotas: pets.filter(pet => pet.dueño === owner.id) 
+    });
   };
 
   const handleAddOwner = () => {
     navigation.navigate('OwnerForm');
   };
 
-  const handleDueñoPress = (dueño) => {
-    // Obtener las mascotas de este dueño
-    const mascotasDelDueño = mascotas.filter(mascota => mascota.dueño === dueño.id);
-    navigation.navigate('OwnerDetail', { dueño, mascotas: mascotasDelDueño });
-  };
-
-  const renderDueñoItem = ({ item }) => (
-    <TouchableOpacity style={styles.card} onPress={() => handleDueñoPress(item)}>
-      <View style={styles.avatar}>
-        <Text style={styles.avatarText}>{item.nombre.charAt(0)}{item.apellido.charAt(0)}</Text>
-      </View>
-      <View style={styles.info}>
-        <Text style={styles.name}>{item.nombre} {item.apellido}</Text>
-        <Text style={styles.contact}>{item.email}</Text>
-        <Text style={styles.contact}>{item.telefono}</Text>
-        <Text style={styles.address}>{item.direccion}, {item.ciudad}</Text>
-      </View>
-    </TouchableOpacity>
-  );
-
   if (loading && !refreshing) {
     return (
       <View style={styles.centeredContainer}>
         <ActivityIndicator size="large" color="#0066cc" />
-        <Text style={styles.loadingText}>Cargando dueños...</Text>
+        <Text style={styles.loadingText}>Cargando perfiles...</Text>
       </View>
     );
   }
@@ -90,10 +96,9 @@ export default function Profile() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Dueños Registrados</Text>
       <FlatList
-        data={dueños}
-        renderItem={renderDueñoItem}
+        data={owners}
+        renderItem={({ item }) => <OwnerCard owner={item} onPress={handleOwnerPress} />}
         keyExtractor={(item) => item.id.toString()}
         contentContainerStyle={styles.listContent}
         refreshControl={
@@ -105,7 +110,7 @@ export default function Profile() {
           </View>
         }
       />
-
+      
       <TouchableOpacity style={styles.fab} onPress={handleAddOwner}>
         <Icon name="plus" size={24} color="#fff" />
       </TouchableOpacity>
@@ -119,13 +124,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f5f5',
     padding: 10,
   },
-  title: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginVertical: 15,
-    marginHorizontal: 10,
-    color: '#333',
-  },
   centeredContainer: {
     flex: 1,
     alignItems: 'center',
@@ -134,53 +132,6 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingBottom: 80, // Para dejar espacio para el botón flotante
-  },
-  card: {
-    backgroundColor: 'white',
-    borderRadius: 10,
-    padding: 15,
-    marginVertical: 8,
-    marginHorizontal: 10,
-    flexDirection: 'row',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  avatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#0066cc',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 15,
-  },
-  avatarText: {
-    color: 'white',
-    fontSize: 20,
-    fontWeight: 'bold',
-  },
-  info: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  name: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 5,
-  },
-  contact: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 3,
-  },
-  address: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 5,
   },
   loadingText: {
     marginTop: 10,
@@ -208,7 +159,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     right: 20,
     bottom: 20,
-    backgroundColor: '#0066cc',
+    backgroundColor: '#00bf97',
     borderRadius: 28,
     elevation: 8,
     shadowColor: '#000',

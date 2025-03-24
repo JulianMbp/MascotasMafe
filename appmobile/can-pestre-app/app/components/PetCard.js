@@ -1,7 +1,12 @@
 import React from 'react';
 import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { generateColorFromString } from '../utils/colors';
 
 const PetCard = ({ pet, onPress }) => {
+  // Generar un color único basado en la especie y raza de la mascota
+  const petIdentifier = `${pet.especie}${pet.raza}`;
+  const petColor = generateColorFromString(petIdentifier);
+
   // Función para formatear correctamente la imagen base64
   const formatearImagen = (imagenData) => {
     if (!imagenData) return null;
@@ -24,8 +29,8 @@ const PetCard = ({ pet, onPress }) => {
           resizeMode="cover"
         />
       ) : (
-        <View style={styles.imagePlaceholder}>
-          <Text style={styles.placeholderText}>Sin imagen</Text>
+        <View style={[styles.imagePlaceholder, { backgroundColor: petColor }]}>
+          <Text style={styles.placeholderText}>{pet.nombre.charAt(0)}</Text>
         </View>
       )}
       <View style={styles.info}>
@@ -61,13 +66,13 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 8,
-    backgroundColor: '#e1e1e1',
     justifyContent: 'center',
     alignItems: 'center',
   },
   placeholderText: {
-    color: '#757575',
-    fontSize: 12,
+    color: '#fff',
+    fontSize: 24,
+    fontWeight: 'bold',
   },
   info: {
     flex: 1,

@@ -1,24 +1,34 @@
 import { useNavigation } from '@react-navigation/native';
 import React, { useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
+  ActivityIndicator,
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { deleteDueño } from '../services/api';
+import { generateColorFromString } from '../utils/colors';
 
 const OwnerDetail = ({ route }) => {
   const { dueño, mascotas = [] } = route.params;
   const [loading, setLoading] = useState(false);
   const navigation = useNavigation();
+  
+  // Generar un color único basado en el nombre y apellido del dueño
+  const ownerFullName = `${dueño.nombre}${dueño.apellido}`;
+  const avatarColor = generateColorFromString(ownerFullName);
 
   const handleEdit = () => {
     navigation.navigate('OwnerForm', { dueño });
+  };
+
+  const navigateBackWithRefresh = () => {
+    console.log('Navegando de vuelta con needsRefresh=true después de eliminar dueño');
+    navigation.navigate('Profile', { needsRefresh: true });
   };
 
   const handleDelete = () => {
@@ -44,8 +54,12 @@ const OwnerDetail = ({ route }) => {
             try {
               setLoading(true);
               await deleteDueño(dueño.id);
-              Alert.alert('Éxito', 'Dueño eliminado correctamente');
-              navigation.goBack();
+              Alert.alert('Éxito', 'Dueño eliminado correctamente', [
+                {
+                  text: 'OK',
+                  onPress: () => navigateBackWithRefresh()
+                }
+              ]);
             } catch (error) {
               console.error('Error al eliminar dueño:', error);
               Alert.alert('Error', 'No se pudo eliminar el dueño');
@@ -71,7 +85,7 @@ const OwnerDetail = ({ route }) => {
     <View style={styles.container}>
       <ScrollView>
         <View style={styles.header}>
-          <View style={styles.avatar}>
+          <View style={[styles.avatar, { backgroundColor: avatarColor }]}>
             <Text style={styles.avatarText}>
               {dueño.nombre.charAt(0)}{dueño.apellido.charAt(0)}
             </Text>
@@ -174,7 +188,6 @@ const styles = StyleSheet.create({
     width: 100,
     height: 100,
     borderRadius: 50,
-    backgroundColor: '#0066cc',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 15,

@@ -44,6 +44,11 @@ const PetForm = ({ navigation, route }) => {
     loadDueños();
   }, []);
 
+  const navigateBackWithRefresh = () => {
+    console.log('Navegando de vuelta con needsRefresh=true');
+    navigation.navigate('Pets', { needsRefresh: true });
+  };
+
   const handleSubmit = async () => {
     if (!nombre || !especie || !raza || !edad || !peso || !selectedDueño) {
       Alert.alert('Error', 'Por favor, completa todos los campos obligatorios');
@@ -67,7 +72,7 @@ const PetForm = ({ navigation, route }) => {
         Alert.alert('Éxito', 'Mascota actualizada correctamente', [
           { 
             text: 'OK', 
-            onPress: () => navigation.goBack() 
+            onPress: () => navigateBackWithRefresh() 
           }
         ]);
       } else {
@@ -75,7 +80,7 @@ const PetForm = ({ navigation, route }) => {
         Alert.alert('Éxito', 'Mascota registrada correctamente', [
           { 
             text: 'OK', 
-            onPress: () => navigation.goBack() 
+            onPress: () => navigateBackWithRefresh() 
           }
         ]);
       }

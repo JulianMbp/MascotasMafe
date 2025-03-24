@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { deleteMascota, fetchDueñoById } from '../services/api';
+import { generateColorFromString } from '../utils/colors';
 
 const PetDetail = ({ route }) => {
   const { pet } = route.params;
@@ -19,6 +20,10 @@ const PetDetail = ({ route }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const navigation = useNavigation();
+  
+  // Generar un color único basado en la especie y raza de la mascota
+  const petIdentifier = `${pet.especie}${pet.raza}`;
+  const petColor = generateColorFromString(petIdentifier);
 
   // Función para formatear correctamente la imagen base64
   const formatearImagen = (imagenData) => {
@@ -50,6 +55,11 @@ const PetDetail = ({ route }) => {
     loadDueñoData();
   }, [pet.dueño]);
 
+  const navigateBackWithRefresh = () => {
+    console.log('Navegando de vuelta con needsRefresh=true después de eliminar mascota');
+    navigation.navigate('Pets', { needsRefresh: true });
+  };
+
   const handleDelete = () => {
     Alert.alert(
       'Eliminar Mascota',
@@ -62,8 +72,12 @@ const PetDetail = ({ route }) => {
           onPress: async () => {
             try {
               await deleteMascota(pet.id);
-              Alert.alert('Éxito', 'Mascota eliminada correctamente');
-              navigation.goBack();
+              Alert.alert('Éxito', 'Mascota eliminada correctamente', [
+                {
+                  text: 'OK',
+                  onPress: () => navigateBackWithRefresh()
+                }
+              ]);
             } catch (error) {
               console.error('Error al eliminar mascota:', error);
               Alert.alert('Error', 'No se pudo eliminar la mascota');
@@ -106,8 +120,8 @@ const PetDetail = ({ route }) => {
               resizeMode="cover"
             />
           ) : (
-            <View style={styles.imagePlaceholder}>
-              <Text style={styles.placeholderText}>Sin imagen</Text>
+            <View style={[styles.imagePlaceholder, { backgroundColor: petColor }]}>
+              <Text style={styles.placeholderText}>{pet.nombre.charAt(0)}</Text>
             </View>
           )}
           <Text style={styles.name}>{pet.nombre}</Text>
@@ -206,14 +220,14 @@ const styles = StyleSheet.create({
     width: 150,
     height: 150,
     borderRadius: 75,
-    backgroundColor: '#e1e1e1',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 15,
   },
   placeholderText: {
-    color: '#757575',
-    fontSize: 16,
+    color: '#fff',
+    fontSize: 48,
+    fontWeight: 'bold',
   },
   name: {
     fontSize: 24,

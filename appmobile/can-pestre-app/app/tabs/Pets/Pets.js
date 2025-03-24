@@ -13,18 +13,23 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import PetCard from '../../components/PetCard';
 import { fetchMascotas } from '../../services/api';
 
-export default function Pets() {
+export default function Pets({ route }) {
   const [pets, setPets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const navigation = useNavigation();
 
-  const loadPets = async () => {
+  // Verificar si hay parametros de needsRefresh en la ruta
+  const needsRefresh = route?.params?.needsRefresh || false;
+
+  const loadPets = async (forceRefresh = false) => {
     try {
-      setLoading(true);
+      if (!forceRefresh && !refreshing) {
+        setLoading(true);
+      }
       setError(null);
-      const data = await fetchMascotas();
+      const data = await fetchMascotas(forceRefresh);
       setPets(data);
     } catch (err) {
       console.error('Error al cargar mascotas:', err);
@@ -32,23 +37,33 @@ export default function Pets() {
     } finally {
       setLoading(false);
       setRefreshing(false);
+      
+      // Limpiar el parámetro de needsRefresh si existe
+      if (route.params?.needsRefresh) {
+        navigation.setParams({ needsRefresh: false });
+      }
     }
   };
 
   useEffect(() => {
-    loadPets();
+    // Cargar mascotas con caché si no se requiere refresco
+    loadPets(needsRefresh);
 
-    // Agrega un listener para refrescar la lista cuando navegues de regreso a esta pantalla
+    // Listener para cuando volvemos a esta pantalla
     const unsubscribe = navigation.addListener('focus', () => {
-      loadPets();
+      const focusNeedsRefresh = route.params?.needsRefresh || false;
+      if (focusNeedsRefresh) {
+        console.log('Forzando refresco de mascotas por needsRefresh');
+        loadPets(true); // Forzar refresco si es necesario
+      }
     });
 
     return unsubscribe;
-  }, [navigation]);
+  }, [navigation, route.params?.needsRefresh]);
 
   const onRefresh = () => {
     setRefreshing(true);
-    loadPets();
+    loadPets(true); // Siempre forzar refresco en pull-to-refresh
   };
 
   const handlePetPress = (pet) => {

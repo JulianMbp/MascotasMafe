@@ -31,6 +31,11 @@ const OwnerForm = ({ navigation, route }) => {
     return regex.test(email);
   };
 
+  const navigateBackWithRefresh = () => {
+    console.log('Navegando de vuelta con needsRefresh=true');
+    navigation.navigate('Profile', { needsRefresh: true });
+  };
+
   const handleSubmit = async () => {
     if (!nombre || !apellido || !email || !telefono || !direccion || !ciudad) {
       Alert.alert('Error', 'Por favor, completa todos los campos');
@@ -58,7 +63,7 @@ const OwnerForm = ({ navigation, route }) => {
         Alert.alert('Éxito', 'Dueño actualizado correctamente', [
           { 
             text: 'OK', 
-            onPress: () => navigation.goBack() 
+            onPress: () => navigateBackWithRefresh()
           }
         ]);
       } else {
@@ -66,7 +71,7 @@ const OwnerForm = ({ navigation, route }) => {
         Alert.alert('Éxito', 'Dueño registrado correctamente', [
           { 
             text: 'OK', 
-            onPress: () => navigation.goBack() 
+            onPress: () => navigateBackWithRefresh()
           }
         ]);
       }
