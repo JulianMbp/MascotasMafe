@@ -13,7 +13,7 @@ export default function Start() {
     <View style={styles.container}>
       <View style={styles.content}>
         <Text style={styles.title}>¡Bienvenido a Can-Pestre!</Text>
-        <Text style={styles.subtitle}>Tu app para el cuidado y seguimiento tu mascotas</Text>
+        <Text style={styles.subtitle}>Tu app para el cuidado y seguimiento tus mascotas</Text>
         
         <View style={styles.logoContainer}>
           <Image 

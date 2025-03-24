@@ -44,7 +44,7 @@ export default function Home() {
   return (
     <ScrollView style={styles.scrollView}>
       <View style={styles.container}>
-        <Text style={styles.welcome}>¡Bienvenido a Can-Pestre!</Text>
+        <Text style={styles.welcome}>¡Bienvenido a tu app Can-Pestre!</Text>
         <Text style={styles.subtitle}>Selecciona una opción para comenzar:</Text>
         
         <View style={styles.menuGrid}>
