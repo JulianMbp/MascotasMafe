@@ -2,7 +2,7 @@ import axios from 'axios';
 import { clearCacheItem, getCacheData, setCacheData } from './cacheService';
 
 // URL base de la API - Asegúrate de cambiar esto según tu configuración local
-const API_URL = 'https://81da-186-99-161-251.ngrok-free.app';  // cambiar por url de ngrok
+const API_URL = 'https://2a1d-161-18-52-113.ngrok-free.app';  // cambiar por url de ngrok
 
 // Creando una instancia de axios con la URL base
 const apiClient = axios.create({
@@ -197,6 +197,27 @@ export const deleteDueño = async (id) => {
     return response.data;
   } catch (error) {
     console.error(`Error al eliminar dueño con ID ${id}:`, error);
+    throw error;
+  }
+};
+
+// Función para enviar la ubicación GPS de la mascota
+export const sendPetLocation = async (mascotaId, latitud, longitud) => {
+  try {
+    console.log(`Enviando ubicación: mascota=${mascotaId}, lat=${latitud}, lon=${longitud}`);
+    console.log(`URL de destino: ${API_URL}/location/mobile/`);
+    
+    const response = await apiClient.post('/location/mobile/', {
+      latitude: latitud,
+      longitude: longitud,
+      mascota: mascotaId
+    });
+    
+    console.log('Respuesta del servidor:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error(`Error al enviar ubicación de mascota con ID ${mascotaId}:`, error);
+    console.error('Detalles del error:', error.response ? error.response.data : 'Sin detalles');
     throw error;
   }
 }; 

@@ -8,7 +8,7 @@ import { FcBinoculars } from "react-icons/fc";
 export default function Header() {
     return (
         <header className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-4  items-center grid grid-cols-2 gap-4">
-            <h1 className="text-3xl font-bold flex items-center gap-2"> <GiFlatPawPrint className="text-4xl" />Villa Mafe</h1>
+            <h1 className="text-3xl font-bold flex items-center gap-2"> <GiFlatPawPrint className="text-4xl" />Club Can-Pestre</h1>
             <div className="flex justify-end gap-4 font-semibold text-xl">
                         <Link href="/" className="hover:text-gray-300 cursor-pointer transition-all duration-300 hover:scale-105 flex gap-3 items-center justify-center">
                         <FcHome />

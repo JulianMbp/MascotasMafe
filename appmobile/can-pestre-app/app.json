@@ -13,16 +13,37 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Can-Pestre necesita acceder a tu ubicación para registrar la posición de tu mascota.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Can-Pestre necesita acceder a tu ubicación para registrar la posición de tu mascota.",
+        "NSLocationAlwaysUsageDescription": "Can-Pestre necesita acceder a tu ubicación para registrar la posición de tu mascota."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
-      }
+      },
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Can-Pestre necesita acceder a tu ubicación para registrar la posición de tu mascota.",
+          "locationAlwaysPermission": "Can-Pestre necesita acceder a tu ubicación para registrar la posición de tu mascota.",
+          "locationWhenInUsePermission": "Can-Pestre necesita acceder a tu ubicación para registrar la posición de tu mascota."
+        }
+      ]
+    ],
+    "description": "Aplicación para rastreo de mascotas. Utiliza OpenStreetMap para la visualización de mapas (© OpenStreetMap contributors)."
   }
 }
