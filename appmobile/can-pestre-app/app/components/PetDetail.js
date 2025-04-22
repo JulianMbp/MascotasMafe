@@ -13,6 +13,7 @@ import {
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { deleteMascota, fetchDueñoById } from '../services/api';
 import { generateColorFromString } from '../utils/colors';
+import { formatearImagen } from '../utils/formatImage';
 
 const PetDetail = ({ route }) => {
   const { pet } = route.params;
@@ -24,19 +25,6 @@ const PetDetail = ({ route }) => {
   // Generar un color único basado en la especie y raza de la mascota
   const petIdentifier = `${pet.especie}${pet.raza}`;
   const petColor = generateColorFromString(petIdentifier);
-
-  // Función para formatear correctamente la imagen base64
-  const formatearImagen = (imagenData) => {
-    if (!imagenData) return null;
-    
-    // Verificar si la cadena ya contiene el prefijo data:image
-    if (imagenData.startsWith('data:image')) {
-      return imagenData;
-    }
-    
-    // Si no tiene el prefijo, añadirlo
-    return `data:image/jpeg;base64,${imagenData}`;
-  };
 
   useEffect(() => {
     const loadDueñoData = async () => {

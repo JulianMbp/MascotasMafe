@@ -5,13 +5,16 @@ const CACHE_PREFIX = 'api_cache_';
 const TIMESTAMP_PREFIX = 'timestamp_';
 
 // Tiempos de expiración por defecto (en milisegundos)
-const DEFAULT_EXPIRY_TIME = 2 * 60 * 1000; // 2 minutos
+const DEFAULT_EXPIRY_TIME = 5 * 60 * 1000; // 5 minutos (aumentado)
+
+// Tamaño máximo permitido para un elemento en caché (en bytes)
+const MAX_CACHE_ITEM_SIZE = 500000; // ~500KB
 
 /**
  * Guarda datos en el caché con un timestamp
  * @param {string} key - Clave del caché
  * @param {any} data - Datos a guardar
- * @param {number} expiryTime - Tiempo de expiración en milisegundos (por defecto 10 minutos)
+ * @param {number} expiryTime - Tiempo de expiración en milisegundos (por defecto 5 minutos)
  */
 export const setCacheData = async (key, data, expiryTime = DEFAULT_EXPIRY_TIME) => {
   try {
@@ -19,21 +22,34 @@ export const setCacheData = async (key, data, expiryTime = DEFAULT_EXPIRY_TIME) 
     const timestampKey = `${TIMESTAMP_PREFIX}${key}`;
     const now = Date.now();
     
-    await AsyncStorage.setItem(cacheKey, JSON.stringify(data));
-    await AsyncStorage.setItem(timestampKey, now.toString());
+    // Convertir datos a string
+    const dataString = JSON.stringify(data);
     
-    console.log(`Datos guardados en caché: ${key}`);
+    // Verificar tamaño
+    if (dataString.length > MAX_CACHE_ITEM_SIZE) {
+      console.warn(`Datos demasiado grandes para caché (${key}): ${dataString.length} bytes. Saltando caché.`);
+      return false;
+    }
     
-    // Establecer tiempo de expiración
-    setTimeout(() => {
-      clearCacheItem(key).catch(err => 
-        console.error(`Error al limpiar caché expirado para ${key}:`, err)
-      );
-    }, expiryTime);
+    // Guardar en bloques si es necesario
+    try {
+      await AsyncStorage.setItem(cacheKey, dataString);
+      await AsyncStorage.setItem(timestampKey, now.toString());
+      console.log(`Datos guardados en caché: ${key}`);
+    } catch (storageError) {
+      console.error(`Error al guardar en caché ${key}, posiblemente demasiado grande:`, storageError);
+      // Si falla, intentar limpiar este elemento para evitar inconsistencias
+      try {
+        await clearCacheItem(key);
+      } catch (clearError) {
+        // Ignorar errores de limpieza
+      }
+      return false;
+    }
     
     return true;
   } catch (error) {
-    console.error(`Error al guardar en caché ${key}:`, error);
+    console.error(`Error al procesar caché para ${key}:`, error);
     return false;
   }
 };
@@ -41,7 +57,7 @@ export const setCacheData = async (key, data, expiryTime = DEFAULT_EXPIRY_TIME) 
 /**
  * Obtiene datos del caché si son válidos (no han expirado)
  * @param {string} key - Clave del caché
- * @param {number} expiryTime - Tiempo de expiración en milisegundos (por defecto 10 minutos)
+ * @param {number} expiryTime - Tiempo de expiración en milisegundos
  * @returns {Promise<any|null>} Datos del caché o null si no existen o han expirado
  */
 export const getCacheData = async (key, expiryTime = DEFAULT_EXPIRY_TIME) => {
@@ -49,27 +65,41 @@ export const getCacheData = async (key, expiryTime = DEFAULT_EXPIRY_TIME) => {
     const cacheKey = `${CACHE_PREFIX}${key}`;
     const timestampKey = `${TIMESTAMP_PREFIX}${key}`;
     
-    const cachedData = await AsyncStorage.getItem(cacheKey);
+    // Obtener timestamp primero (es más liviano)
     const timestamp = await AsyncStorage.getItem(timestampKey);
-    
-    if (!cachedData || !timestamp) {
-      console.log(`No se encontraron datos en caché para ${key}`);
+    if (!timestamp) {
+      console.log(`No se encontró timestamp en caché para ${key}`);
       return null;
     }
     
     const now = Date.now();
     const storedTime = parseInt(timestamp, 10);
     
-    // Verificar si los datos han expirado
+    // Verificar si los datos han expirado antes de intentar cargarlos
     if (now - storedTime > expiryTime) {
       console.log(`Datos en caché expirados para ${key}`);
-      // Limpiar datos expirados
-      await clearCacheItem(key);
+      // Limpiar datos expirados en segundo plano
+      clearCacheItem(key).catch(() => {});
       return null;
     }
     
-    console.log(`Datos recuperados del caché: ${key}`);
-    return JSON.parse(cachedData);
+    // Cargar datos solo si el timestamp es válido
+    try {
+      const cachedData = await AsyncStorage.getItem(cacheKey);
+      if (!cachedData) {
+        console.log(`No se encontraron datos en caché para ${key}`);
+        return null;
+      }
+      
+      console.log(`Datos recuperados del caché: ${key}`);
+      return JSON.parse(cachedData);
+    } catch (dataError) {
+      console.error(`Error al parsear datos del caché ${key}:`, dataError);
+      // Limpiar este elemento corrupto
+      clearCacheItem(key).catch(() => {});
+      return null;
+    }
+    
   } catch (error) {
     console.error(`Error al recuperar datos del caché ${key}:`, error);
     return null;

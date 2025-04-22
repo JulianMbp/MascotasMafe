@@ -14,10 +14,11 @@ const apiClient = axios.create({
 
 // Tiempos de expiración para diferentes tipos de datos (en milisegundos)
 const CACHE_EXPIRY = {
-  MASCOTAS_LIST: 2 * 60 * 1000,        // 2 minutos para listas de mascotas
+  MASCOTAS_LIST: 5 * 60 * 1000,        // 5 minutos para listas de mascotas (aumentado)
   MASCOTA_DETAIL: 2 * 60 * 1000,       // 2 minutos para detalles de mascota
-  DUEÑOS_LIST: 2 * 60 * 1000,          // 2 minutos para listas de dueños
+  DUEÑOS_LIST: 5 * 60 * 1000,          // 5 minutos para listas de dueños (aumentado)
   DUEÑO_DETAIL: 2 * 60 * 1000,         // 2 minutos para detalles de dueño
+  IMAGE_DATA: 30 * 60 * 1000,          // 30 minutos para imágenes (más largo)
 };
 
 // Claves de caché para diferentes tipos de datos
@@ -26,7 +27,12 @@ const CACHE_KEYS = {
   MASCOTA_DETAIL: (id) => `mascota_${id}`,
   DUEÑOS_LIST: 'dueños_list',
   DUEÑO_DETAIL: (id) => `dueño_${id}`,
+  IMAGE_DATA: (id) => `img_${id}`,     // Clave para imágenes individuales
 };
+
+// Variable para controlar si ya estamos en proceso de obtener datos
+let isFetchingMascotas = false;
+let isFetchingDueños = false;
 
 /**
  * Función genérica para obtener datos con caché
@@ -38,11 +44,35 @@ const CACHE_KEYS = {
 const fetchWithCache = async (cacheKey, expiryTime, fetchFunction, forceRefresh = false) => {
   // Si se fuerza el refresco, no usamos la caché
   if (!forceRefresh) {
-    // Intentar obtener datos del caché
-    const cachedData = await getCacheData(cacheKey, expiryTime);
-    if (cachedData) {
-      console.log(`Usando datos en caché para: ${cacheKey}`);
-      return cachedData;
+    try {
+      // Intentar obtener datos del caché
+      const cachedData = await getCacheData(cacheKey, expiryTime);
+      if (cachedData) {
+        console.log(`Usando datos en caché para: ${cacheKey}`);
+
+        // Si es la lista de mascotas, cargar las imágenes desde el caché individual
+        if (cacheKey === CACHE_KEYS.MASCOTAS_LIST && Array.isArray(cachedData)) {
+          const mascotasWithImages = await Promise.all(
+            cachedData.map(async (mascota) => {
+              if (!mascota.imagen && mascota.id) {
+                // Si no tiene imagen en el caché principal, intentar cargarla del caché individual
+                const imageCacheKey = CACHE_KEYS.IMAGE_DATA(mascota.id);
+                const cachedImage = await getCacheData(imageCacheKey, CACHE_EXPIRY.IMAGE_DATA);
+                if (cachedImage) {
+                  return { ...mascota, imagen: cachedImage };
+                }
+              }
+              return mascota;
+            })
+          );
+          return mascotasWithImages;
+        }
+        
+        return cachedData;
+      }
+    } catch (error) {
+      console.error(`Error al recuperar datos del caché ${cacheKey}:`, error);
+      // Continuamos con la petición al servidor
     }
   }
   
@@ -50,14 +80,82 @@ const fetchWithCache = async (cacheKey, expiryTime, fetchFunction, forceRefresh 
   console.log(`Obteniendo datos frescos para: ${cacheKey}`);
   const freshData = await fetchFunction();
   
-  // Guardar los nuevos datos en caché
-  await setCacheData(cacheKey, freshData, expiryTime);
-  return freshData;
+  try {
+    // Para mascotas_list, guardar metadatos y las imágenes por separado
+    if (cacheKey === CACHE_KEYS.MASCOTAS_LIST && Array.isArray(freshData)) {
+      // Guardar metadatos sin imágenes en el caché principal
+      const metadataOnly = freshData.map(mascota => {
+        // Primero guardar cada imagen en su propio caché
+        if (mascota.imagen && mascota.id) {
+          const imageCacheKey = CACHE_KEYS.IMAGE_DATA(mascota.id);
+          setCacheData(imageCacheKey, mascota.imagen, CACHE_EXPIRY.IMAGE_DATA)
+            .catch(err => console.error(`Error al guardar imagen en caché para mascota ${mascota.id}:`, err));
+          
+          // Retornar objeto sin imagen para el caché principal
+          return { ...mascota, imagen: null };
+        }
+        return mascota;
+      });
+      
+      // Guardar versión sin imágenes en caché principal
+      await setCacheData(cacheKey, metadataOnly, expiryTime);
+      
+      // Devolver los datos completos (con imágenes)
+      return freshData;
+    } else {
+      // Para otros tipos de datos, guardar normalmente
+      await setCacheData(cacheKey, freshData, expiryTime);
+      return freshData;
+    }
+  } catch (error) {
+    console.error(`Error al guardar en caché ${cacheKey}:`, error);
+    // Continuamos retornando los datos aunque el caché falle
+    return freshData;
+  }
 };
 
 // Funciones para mascotas
 export const fetchMascotas = async (forceRefresh = false) => {
+  // Evitamos múltiples peticiones simultáneas
+  if (isFetchingMascotas && !forceRefresh) {
+    console.log('Ya hay una petición en curso para mascotas, esperando...');
+    // Esperar 500ms y reintentar
+    return new Promise(resolve => {
+      setTimeout(async () => {
+        // Intentar obtener de caché
+        try {
+          const cachedData = await getCacheData(CACHE_KEYS.MASCOTAS_LIST, CACHE_EXPIRY.MASCOTAS_LIST);
+          if (cachedData) {
+            console.log('Datos recuperados del caché: mascotas_list');
+            
+            // Cargar imágenes desde caché individual
+            const mascotasWithImages = await Promise.all(
+              cachedData.map(async (mascota) => {
+                if (!mascota.imagen && mascota.id) {
+                  const imageCacheKey = CACHE_KEYS.IMAGE_DATA(mascota.id);
+                  const cachedImage = await getCacheData(imageCacheKey, CACHE_EXPIRY.IMAGE_DATA);
+                  if (cachedImage) {
+                    return { ...mascota, imagen: cachedImage };
+                  }
+                }
+                return mascota;
+              })
+            );
+            
+            resolve(mascotasWithImages);
+            return;
+          }
+        } catch (error) {
+          // Ignorar errores de caché y continuar
+        }
+        // Si no hay caché, reintentar la petición
+        resolve(fetchMascotas(forceRefresh));
+      }, 500);
+    });
+  }
+  
   try {
+    isFetchingMascotas = true;
     return await fetchWithCache(
       CACHE_KEYS.MASCOTAS_LIST,
       CACHE_EXPIRY.MASCOTAS_LIST,
@@ -70,6 +168,8 @@ export const fetchMascotas = async (forceRefresh = false) => {
   } catch (error) {
     console.error('Error al obtener mascotas:', error);
     throw error;
+  } finally {
+    isFetchingMascotas = false;
   }
 };
 
@@ -207,10 +307,22 @@ export const sendPetLocation = async (mascotaId, latitud, longitud) => {
     console.log(`Enviando ubicación: mascota=${mascotaId}, lat=${latitud}, lon=${longitud}`);
     console.log(`URL de destino: ${API_URL}/location/mobile/`);
     
-    const response = await apiClient.post('/location/mobile/', {
-      latitude: latitud,
-      longitude: longitud,
-      mascota: mascotaId
+    // Creamos un FormData para enviar los datos en formato de formulario
+    const formData = new FormData();
+    formData.append('mascota', mascotaId.toString());
+    formData.append('latitud', latitud.toString());  // Nombre correcto según el backend
+    formData.append('longitud', longitud.toString()); // Nombre correcto según el backend
+    
+    console.log('Datos enviados (FormData):', {mascota: mascotaId, latitud: latitud, longitud: longitud});
+    
+    // Crear una instancia separada para esta petición con headers específicos
+    const response = await axios({
+      method: 'post',
+      url: `${API_URL}/location/mobile/`,
+      data: formData,
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      }
     });
     
     console.log('Respuesta del servidor:', response.data);

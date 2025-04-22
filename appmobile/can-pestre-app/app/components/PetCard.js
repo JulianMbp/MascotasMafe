@@ -1,24 +1,12 @@
 import React from 'react';
 import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { generateColorFromString } from '../utils/colors';
+import { formatearImagen } from '../utils/formatImage';
 
 const PetCard = ({ pet, onPress }) => {
   // Generar un color único basado en la especie y raza de la mascota
   const petIdentifier = `${pet.especie}${pet.raza}`;
   const petColor = generateColorFromString(petIdentifier);
-
-  // Función para formatear correctamente la imagen base64
-  const formatearImagen = (imagenData) => {
-    if (!imagenData) return null;
-    
-    // Verificar si la cadena ya contiene el prefijo data:image
-    if (imagenData.startsWith('data:image')) {
-      return imagenData;
-    }
-    
-    // Si no tiene el prefijo, añadirlo
-    return `data:image/jpeg;base64,${imagenData}`;
-  };
 
   return (
     <TouchableOpacity style={styles.card} onPress={() => onPress(pet)}>

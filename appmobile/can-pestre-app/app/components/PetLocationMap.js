@@ -1,8 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import MapView, { Marker, Polyline, UrlTile } from 'react-native-maps';
+import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { WebView } from 'react-native-webview';
 import { sendPetLocation } from '../services/api';
 
 const PetLocationMap = ({ mascotaId, mascotaNombre, mascotaImagen }) => {
@@ -13,7 +13,7 @@ const PetLocationMap = ({ mascotaId, mascotaNombre, mascotaImagen }) => {
   const [errorMsg, setErrorMsg] = useState(null);
   const [lastSentTime, setLastSentTime] = useState(null);
   const intervalRef = useRef(null);
-  const mapRef = useRef(null);
+  const webviewRef = useRef(null);
 
   // Solicitar permisos y obtener ubicación inicial
   useEffect(() => {
@@ -63,6 +63,9 @@ const PetLocationMap = ({ mascotaId, mascotaNombre, mascotaImagen }) => {
       
       // Limpiar el historial de ubicaciones para la nueva mascota
       setLocationHistory([]);
+      
+      // Actualizar el mapa con la nueva mascota
+      updateMap();
     }
   }, [mascotaId]);
 
@@ -81,6 +84,9 @@ const PetLocationMap = ({ mascotaId, mascotaNombre, mascotaImagen }) => {
           // Verificar si la ubicación es diferente a la última enviada
           if (shouldAddLocation(newLocation)) {
             sendLocationData(newLocation, mascotaId);
+            
+            // Actualizar el mapa
+            updateMap();
           }
         } catch (error) {
           console.error('Error en el seguimiento automático:', error);
@@ -104,6 +110,35 @@ const PetLocationMap = ({ mascotaId, mascotaNombre, mascotaImagen }) => {
       }
     };
   }, [isTracking, mascotaId]);
+
+  // Función para actualizar el mapa con la ubicación actual
+  const updateMap = () => {
+    if (webviewRef.current && currentLocation) {
+      const { latitude, longitude } = currentLocation.coords;
+      
+      // Script para actualizar el marcador en el mapa
+      const updateScript = `
+        try {
+          if (window.marker) {
+            window.marker.setLatLng([${latitude}, ${longitude}]);
+          } else if (window.map) {
+            window.marker = L.marker([${latitude}, ${longitude}]).addTo(window.map);
+            window.marker.bindPopup("${mascotaNombre}").openPopup();
+          }
+          window.map.setView([${latitude}, ${longitude}], 16);
+          
+          // Agregar al historial de ubicaciones si existe
+          if (window.path) {
+            window.path.addLatLng([${latitude}, ${longitude}]);
+          }
+        } catch(e) {
+          console.error('Error updating map:', e);
+        }
+      `;
+      
+      webviewRef.current.injectJavaScript(updateScript);
+    }
+  };
 
   // Función para determinar si debemos agregar una nueva ubicación al historial
   const shouldAddLocation = (newLocation) => {
@@ -178,16 +213,86 @@ const PetLocationMap = ({ mascotaId, mascotaNombre, mascotaImagen }) => {
     setIsTracking(!isTracking);
   };
 
-  // Función para centrar el mapa en la ubicación actual
-  const centerMapOnLocation = () => {
-    if (mapRef.current && currentLocation) {
-      mapRef.current.animateToRegion({
-        latitude: currentLocation.coords.latitude,
-        longitude: currentLocation.coords.longitude,
-        latitudeDelta: 0.005,
-        longitudeDelta: 0.005,
-      }, 1000);
-    }
+  // Generamos el HTML para el mapa de OpenStreetMap
+  const getMapHTML = () => {
+    const lat = currentLocation ? currentLocation.coords.latitude : 0;
+    const lng = currentLocation ? currentLocation.coords.longitude : 0;
+    
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+        <title>Mapa de ubicación</title>
+        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+        <style>
+          body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            width: 100%;
+            overflow: hidden;
+          }
+          #map {
+            height: 100%;
+            width: 100%;
+          }
+          .custom-marker {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background-color: white;
+            border: 3px solid #4CAF50;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 18px;
+            color: #4CAF50;
+          }
+        </style>
+      </head>
+      <body>
+        <div id="map"></div>
+        <script>
+          // Inicializar el mapa
+          var map = window.map = L.map('map').setView([${lat}, ${lng}], 16);
+          
+          // Añadir capa de OpenStreetMap
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          }).addTo(map);
+          
+          // Crear marcador inicial
+          var marker = window.marker = L.marker([${lat}, ${lng}]).addTo(map);
+          marker.bindPopup("${mascotaNombre}").openPopup();
+          
+          // Inicializar ruta
+          var path = window.path = L.polyline([], {
+            color: '#4CAF50',
+            weight: 3,
+            dashArray: '5, 5'
+          }).addTo(map);
+          
+          // Agregar punto inicial a la ruta
+          path.addLatLng([${lat}, ${lng}]);
+          
+          // Prevenir arrastrar la página al hacer zoom en el mapa
+          document.addEventListener('touchmove', function(e) {
+            e.preventDefault();
+          }, { passive: false });
+        </script>
+      </body>
+      </html>
+    `;
+  };
+
+  // Función que se ejecuta cuando el WebView termina de cargar
+  const handleWebViewLoad = () => {
+    // Actualizar el mapa con la ubicación actual cuando el WebView está listo
+    updateMap();
   };
 
   // Si está cargando, mostrar indicador
@@ -212,13 +317,6 @@ const PetLocationMap = ({ mascotaId, mascotaNombre, mascotaImagen }) => {
 
   // Renderizar mapa si la ubicación está disponible
   if (currentLocation) {
-    const initialRegion = {
-      latitude: currentLocation.coords.latitude,
-      longitude: currentLocation.coords.longitude,
-      latitudeDelta: 0.005,
-      longitudeDelta: 0.005,
-    };
-
     return (
       <View style={styles.container}>
         <View style={styles.mapHeader}>
@@ -230,71 +328,19 @@ const PetLocationMap = ({ mascotaId, mascotaNombre, mascotaImagen }) => {
           )}
         </View>
         
-        <MapView
-          ref={mapRef}
+        <WebView
+          ref={webviewRef}
+          originWhitelist={['*']}
+          source={{ html: getMapHTML() }}
           style={styles.map}
-          initialRegion={initialRegion}
-          showsUserLocation={true}
-          showsMyLocationButton={false}
-        >
-          {/* Capa de OpenStreetMap */}
-          <UrlTile 
-            urlTemplate="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-            maximumZ={19}
-            flipY={false}
-          />
-          
-          {/* Marcador para ubicación actual */}
-          <Marker
-            coordinate={{
-              latitude: currentLocation.coords.latitude,
-              longitude: currentLocation.coords.longitude,
-            }}
-            title={mascotaNombre}
-            description="Ubicación actual"
-          >
-            <View style={styles.customMarker}>
-              {mascotaImagen ? (
-                <Image 
-                  source={{ uri: mascotaImagen.startsWith('data:image') 
-                    ? mascotaImagen 
-                    : `data:image/jpeg;base64,${mascotaImagen}`
-                  }} 
-                  style={styles.markerImage} 
-                />
-              ) : (
-                <View style={styles.markerFallback}>
-                  <Text style={styles.markerText}>{mascotaNombre.charAt(0)}</Text>
-                </View>
-              )}
-            </View>
-          </Marker>
-          
-          {/* Línea de recorrido */}
-          {locationHistory.length > 1 && (
-            <Polyline
-              coordinates={locationHistory.map(loc => ({
-                latitude: loc.latitude,
-                longitude: loc.longitude,
-              }))}
-              strokeColor="#4CAF50"
-              strokeWidth={3}
-              lineDashPattern={[5, 5]}
-            />
-          )}
-        </MapView>
-        
-        {/* Atribución de OpenStreetMap */}
-        <View style={styles.attributionContainer}>
-          <Text style={styles.attributionText}>
-            © OpenStreetMap contributors
-          </Text>
-        </View>
+          onLoad={handleWebViewLoad}
+          javaScriptEnabled={true}
+        />
         
         <View style={styles.mapControls}>
           <TouchableOpacity 
             style={styles.controlButton}
-            onPress={centerMapOnLocation}
+            onPress={updateMap}
           >
             <Ionicons name="locate" size={24} color="#4CAF50" />
           </TouchableOpacity>
@@ -387,35 +433,6 @@ const styles = StyleSheet.create({
     color: '#666666',
     textAlign: 'center',
   },
-  customMarker: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#FFFFFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#4CAF50',
-    overflow: 'hidden',
-  },
-  markerImage: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-  },
-  markerFallback: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#4CAF50',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  markerText: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-    fontSize: 18,
-  },
   mapControls: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -452,19 +469,6 @@ const styles = StyleSheet.create({
   },
   trackingActiveText: {
     color: '#FFFFFF',
-  },
-  attributionContainer: {
-    position: 'absolute',
-    bottom: 60,
-    right: 5,
-    backgroundColor: 'rgba(255, 255, 255, 0.7)',
-    padding: 3,
-    borderRadius: 3,
-    zIndex: 1000,
-  },
-  attributionText: {
-    fontSize: 8,
-    color: '#333333',
   },
 });
 
