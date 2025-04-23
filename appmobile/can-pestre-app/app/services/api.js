@@ -1,8 +1,51 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 
-// URL base de la API - Asegúrate de cambiar esto según tu configuración local
-export const API_URL = 'https://1381-161-18-52-113.ngrok-free.app';  // cambiar por url de ngrok
+// URL base de la API - Configurable y con respaldo local
+export let API_URL = 'https://1381-161-18-52-113.ngrok-free.app';  // URL predeterminada
+
+// Función para cargar la URL de la API desde el almacenamiento local
+export const loadApiUrl = async () => {
+  try {
+    const savedUrl = await AsyncStorage.getItem('API_URL');
+    if (savedUrl) {
+      API_URL = savedUrl;
+      console.log('URL de API cargada desde almacenamiento:', API_URL);
+    }
+    return API_URL;
+  } catch (error) {
+    console.error('Error al cargar URL de API:', error);
+    return API_URL;
+  }
+};
+
+// Función para cambiar la URL de la API
+export const setApiUrl = async (newUrl) => {
+  try {
+    // Validar que la URL sea correcta
+    if (!newUrl || !newUrl.startsWith('http')) {
+      throw new Error('URL inválida, debe comenzar con http:// o https://');
+    }
+    
+    // Guardar en AsyncStorage
+    await AsyncStorage.setItem('API_URL', newUrl);
+    
+    // Actualizar variable global
+    API_URL = newUrl;
+    
+    // Actualizar la configuración de axios
+    apiClient.defaults.baseURL = newUrl;
+    
+    console.log('URL de API actualizada a:', API_URL);
+    return true;
+  } catch (error) {
+    console.error('Error al actualizar URL de API:', error);
+    throw error;
+  }
+};
+
+// Realizar la carga inicial de la URL
+loadApiUrl();
 
 // Creando una instancia de axios con la URL base
 const apiClient = axios.create({
@@ -10,6 +53,7 @@ const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  timeout: 10000, // 10 segundos de timeout por defecto
 });
 
 // Claves para los datos en AsyncStorage
@@ -337,7 +381,7 @@ export const clearAllStoredData = async () => {
   }
 };
 
-export const sendPetLocation = async (mascotaId, latitud, longitud) => {
+export const sendPetLocation = async (mascotaId, latitud, longitud, retryCount = 0) => {
   try {
     // Imprimir para depuración los valores exactos recibidos
     console.log('Valores recibidos en sendPetLocation:');
@@ -345,51 +389,177 @@ export const sendPetLocation = async (mascotaId, latitud, longitud) => {
     console.log('latitud:', latitud, 'tipo:', typeof latitud);
     console.log('longitud:', longitud, 'tipo:', typeof longitud);
     
+    // Verificar que tengamos valores válidos
+    if (!mascotaId || !latitud || !longitud) {
+      console.error('Error: Faltan datos requeridos para enviar ubicación');
+      return { success: false, message: 'Faltan datos requeridos' };
+    }
+    
     // Asegurarnos de que los valores sean del tipo correcto
     const idMascota = Number(mascotaId); // Convertir explícitamente a número
     
     // Crear el objeto con los datos en el formato exacto que espera el backend
+    // Usamos toString() para mantener todos los decimales originales sin redondeo
     const locationData = {
       mascota: idMascota,           // ID como número
-      latitud: parseFloat(latitud),  // Latitud como número decimal
-      longitud: parseFloat(longitud) // Longitud como número decimal
+      latitud: latitud.toString(),  // Latitud como string para preservar todos los decimales
+      longitud: longitud.toString() // Longitud como string para preservar todos los decimales
     };
     
     // Mostrar los datos exactos que se enviarán
     console.log('Datos que se enviarán al backend:', JSON.stringify(locationData));
     
-    // Hacer la petición POST con la URL correcta
-    const response = await fetch(`${API_URL}/location/mobile/`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      },
-      body: JSON.stringify(locationData)
+    // Configuración de timeout para evitar esperas muy largas
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 segundos de timeout
+    
+    try {
+      // Hacer la petición POST con la URL correcta
+      const response = await fetch(`${API_URL}/location/mobile/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(locationData),
+        signal: controller.signal
+      });
+      
+      // Limpiar el timeout ya que la petición se completó
+      clearTimeout(timeoutId);
+      
+      // Obtener el texto de la respuesta para depuración
+      const responseText = await response.text();
+      console.log('Respuesta del servidor (texto):', responseText);
+      
+      // Si la respuesta no es exitosa, lanzar un error
+      if (!response.ok) {
+        throw new Error(`Error ${response.status}: ${responseText}`);
+      }
+      
+      // Parsear la respuesta si es JSON
+      let data;
+      try {
+        data = JSON.parse(responseText);
+        console.log('Respuesta del servidor (parseada):', data);
+      } catch (e) {
+        console.log('La respuesta no es JSON válido');
+        return { success: true, message: responseText };
+      }
+      
+      return data;
+    } catch (fetchError) {
+      // Cancelar el timeout si ocurrió un error en el fetch
+      clearTimeout(timeoutId);
+      
+      // Reintentar hasta 3 veces si hay un error de red
+      if ((fetchError.name === 'AbortError' || fetchError.message.includes('Network request failed')) && retryCount < 3) {
+        console.log(`Intento ${retryCount + 1} fallido, reintentando en 2 segundos...`);
+        
+        // Esperar 2 segundos antes de reintentar
+        return new Promise(resolve => {
+          setTimeout(() => {
+            resolve(sendPetLocation(mascotaId, latitud, longitud, retryCount + 1));
+          }, 2000);
+        });
+      }
+      
+      throw fetchError;
+    }
+  } catch (error) {
+    if (retryCount >= 3) {
+      // Si ya agotamos los reintentos, mostrar un mensaje más amigable
+      console.error('Error al enviar ubicación después de varios intentos:', error.message);
+      
+      // Guardar la ubicación localmente para intentar enviarla más tarde
+      try {
+        await saveFailedLocation(mascotaId, latitud, longitud);
+        console.log('Ubicación guardada localmente para envío posterior');
+      } catch (storageError) {
+        console.error('Error al guardar ubicación localmente:', storageError);
+      }
+      
+      return { 
+        success: false, 
+        message: 'No se pudo enviar la ubicación. Se intentará más tarde.',
+        error: error.message
+      };
+    } else {
+      console.error('Error al enviar ubicación de mascota:', error.message);
+      throw error;
+    }
+  }
+};
+
+// Función para guardar ubicaciones fallidas para intentarlas más tarde
+const saveFailedLocation = async (mascotaId, latitud, longitud) => {
+  try {
+    // Obtener ubicaciones pendientes
+    const pendingLocationsKey = 'pending_locations';
+    const pendingLocationsJSON = await AsyncStorage.getItem(pendingLocationsKey) || '[]';
+    const pendingLocations = JSON.parse(pendingLocationsJSON);
+    
+    // Añadir la nueva ubicación fallida
+    pendingLocations.push({
+      mascota: mascotaId,
+      latitud: latitud.toString(),
+      longitud: longitud.toString(),
+      timestamp: Date.now()
     });
     
-    // Obtener el texto de la respuesta para depuración
-    const responseText = await response.text();
-    console.log('Respuesta del servidor (texto):', responseText);
+    // Guardar la lista actualizada (limitar a máximo 50 ubicaciones)
+    await AsyncStorage.setItem(
+      pendingLocationsKey, 
+      JSON.stringify(pendingLocations.slice(-50))
+    );
     
-    // Si la respuesta no es exitosa, lanzar un error
-    if (!response.ok) {
-      throw new Error(`Error ${response.status}: ${responseText}`);
-    }
-    
-    // Parsear la respuesta si es JSON
-    let data;
-    try {
-      data = JSON.parse(responseText);
-      console.log('Respuesta del servidor (parseada):', data);
-    } catch (e) {
-      console.log('La respuesta no es JSON válido');
-      return { success: true, message: responseText };
-    }
-    
-    return data;
+    return true;
   } catch (error) {
-    console.error('Error al enviar ubicación de mascota:', error.message);
-    throw error;
+    console.error('Error al guardar ubicación pendiente:', error);
+    return false;
+  }
+};
+
+// Exportar una función para intentar enviar ubicaciones pendientes
+export const sendPendingLocations = async () => {
+  try {
+    const pendingLocationsKey = 'pending_locations';
+    const pendingLocationsJSON = await AsyncStorage.getItem(pendingLocationsKey);
+    
+    if (!pendingLocationsJSON) return { sent: 0, pending: 0 };
+    
+    const pendingLocations = JSON.parse(pendingLocationsJSON);
+    if (pendingLocations.length === 0) return { sent: 0, pending: 0 };
+    
+    console.log(`Intentando enviar ${pendingLocations.length} ubicaciones pendientes...`);
+    
+    // Crear una copia de las ubicaciones pendientes
+    const locationsToSend = [...pendingLocations];
+    const successfulIds = [];
+    
+    // Intentar enviar cada ubicación
+    for (let i = 0; i < locationsToSend.length; i++) {
+      const location = locationsToSend[i];
+      try {
+        await sendPetLocation(location.mascota, location.latitud, location.longitud);
+        successfulIds.push(i);
+      } catch (error) {
+        console.error(`Error al enviar ubicación pendiente ${i}:`, error.message);
+      }
+    }
+    
+    // Eliminar las ubicaciones enviadas correctamente
+    const remainingLocations = pendingLocations.filter((_, index) => !successfulIds.includes(index));
+    
+    // Actualizar la lista de ubicaciones pendientes
+    await AsyncStorage.setItem(pendingLocationsKey, JSON.stringify(remainingLocations));
+    
+    return {
+      sent: successfulIds.length,
+      pending: remainingLocations.length
+    };
+  } catch (error) {
+    console.error('Error al procesar ubicaciones pendientes:', error);
+    return { sent: 0, error: error.message };
   }
 }; 

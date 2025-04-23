@@ -90,6 +90,12 @@ export default function LocationScreen() {
   // Efecto para manejar el cambio de mascota seleccionada
   useEffect(() => {
     if (selectedPet && currentLocation) {
+      // Detener cualquier intervalo existente antes de iniciar uno nuevo
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+      
       // Cuando cambie la mascota seleccionada, enviar la ubicación
       sendLocationData(currentLocation, selectedPet.id);
       
@@ -102,54 +108,15 @@ export default function LocationScreen() {
       // Actualizar el mapa si tenemos el WebView listo
       updateMap();
     }
-  }, [selectedPet]);
-
-  // Iniciar el seguimiento automático al cargar el componente
-  useEffect(() => {
-    if (selectedPet && currentLocation) {
-      startTracking();
-    }
     
+    // Limpiar el intervalo cuando se desmonte el componente o cambie la mascota
     return () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
     };
-  }, [selectedPet, currentLocation]);
-
-  // Función para iniciar el seguimiento automático
-  const startTracking = () => {
-    if (!selectedPet) return;
-    
-    // Detener intervalo existente si lo hay
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-    }
-    
-    // Configurar intervalo para enviar cada minuto (60000 ms)
-    intervalRef.current = setInterval(async () => {
-      try {
-        const newLocation = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.High
-        });
-        
-        setCurrentLocation(newLocation);
-        
-        // Verificar si la ubicación es diferente a la última enviada
-        if (shouldAddLocation(newLocation)) {
-          sendLocationData(newLocation, selectedPet.id);
-          
-          // Actualizar el mapa
-          updateMap();
-        }
-      } catch (error) {
-        console.error('Error en el seguimiento automático:', error);
-      }
-    }, 60000);
-    
-    console.log('Seguimiento automático activado - enviando ubicación cada minuto');
-  };
+  }, [selectedPet]);
 
   // Función para obtener el historial de ubicaciones de una mascota
   const fetchLocationHistory = async (petId) => {
@@ -159,39 +126,56 @@ export default function LocationScreen() {
       setFetchingHistory(true);
       setLocationHistory([]);
       
-      // Usar la URL de la API configurada en lugar de localhost
-      const response = await axios.get(`${API_URL}/location/location_list`);
+      // Usar la URL de la API configurada con filtro de tiempo
+      const response = await axios.get(`${API_URL}/location/location_list`, {
+        params: {
+          mascota_id: petId,
+          minutos: 30 // Solicitar ubicaciones de los últimos 30 minutos
+        },
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000 // 10 segundos de timeout
+      });
+      
+      // Verificar si la respuesta es JSON
+      if (typeof response.data === 'string') {
+        console.error('Respuesta no es un JSON válido:', response.data.substring(0, 100));
+        return;
+      }
       
       if (response.data && Array.isArray(response.data)) {
-        // Filtrar ubicaciones por mascota seleccionada y ordenar por fecha
+        // La respuesta ya viene filtrada por el backend
         const petLocations = response.data
-          .filter(location => location.mascota === petId)
           .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
         
         if (petLocations.length > 0) {
           // Convertir a formato para el historial
           const formattedLocations = petLocations.map(loc => ({
-            latitude: parseFloat(loc.latitude),
-            longitude: parseFloat(loc.longitude),
+            latitude: loc.latitude,
+            longitude: loc.longitude,
             timestamp: new Date(loc.created_at).getTime()
           }));
           
           // Actualizar historial
           setLocationHistory(formattedLocations);
           
-          console.log(`Cargadas ${formattedLocations.length} ubicaciones previas`);
+          console.log(`Cargadas ${formattedLocations.length} ubicaciones de los últimos 30 minutos`);
           
           // Actualizar mapa con el historial
           if (webviewRef.current) {
             drawLocationHistory(formattedLocations);
           }
         } else {
-          console.log('No se encontraron ubicaciones previas para esta mascota');
+          console.log('No se encontraron ubicaciones recientes para esta mascota');
         }
       }
     } catch (error) {
       console.error('Error al obtener historial de ubicaciones:', error);
-      console.error('Detalles del error:', error.response ? error.response.data : 'Sin detalles');
+      console.error('Detalles del error:', error.response ? 
+        `Status: ${error.response.status}, Data: ${JSON.stringify(error.response.data).substring(0, 200)}` : 
+        'Sin detalles de respuesta');
     } finally {
       setFetchingHistory(false);
     }
@@ -296,8 +280,8 @@ export default function LocationScreen() {
       newLocation.coords.longitude
     );
     
-    // Solo agregar si la distancia es mayor a 10 metros (0.01 km)
-    return distance > 0.01;
+    // Solo agregar si la distancia es mayor a 5 metros (0.005 km)
+    return distance > 0.005;
   };
 
   // Función para calcular la distancia entre dos coordenadas (fórmula de Haversine)
@@ -319,6 +303,52 @@ export default function LocationScreen() {
     return deg * (Math.PI/180);
   };
 
+  // Función para iniciar el seguimiento automático
+  const startTracking = () => {
+    if (!selectedPet) return;
+    
+    // Detener intervalo existente si lo hay
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+      console.log('Intervalo anterior detenido');
+    }
+    
+    console.log('Iniciando nuevo seguimiento para mascota:', selectedPet.nombre);
+    
+    // Configurar intervalo para verificar la ubicación cada minuto (60000 ms)
+    intervalRef.current = setInterval(() => {
+      console.log('Verificando si la ubicación ha cambiado...');
+      // Usar función async dentro del intervalo para manejar las promesas
+      (async () => {
+        try {
+          const newLocation = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.High
+          });
+          
+          // Guardar la nueva ubicación en el estado
+          setCurrentLocation(newLocation);
+          
+          // Verificar si la ubicación ha cambiado significativamente
+          if (shouldAddLocation(newLocation)) {
+            console.log('Ubicación ha cambiado, enviando actualización...');
+            // Enviar la ubicación solo si ha cambiado
+            sendLocationData(newLocation, selectedPet.id);
+          } else {
+            console.log('Ubicación no ha cambiado significativamente, omitiendo envío');
+          }
+          
+          // Siempre actualizar el mapa con la ubicación actual
+          updateMap();
+        } catch (error) {
+          console.error('Error en el seguimiento automático:', error);
+        }
+      })();
+    }, 60000); // Exactamente 60 segundos
+    
+    console.log('Seguimiento automático activado - verificando ubicación cada minuto');
+  };
+
   // Función para enviar datos de ubicación al servidor
   const sendLocationData = async (location, petId) => {
     try {
@@ -333,32 +363,41 @@ export default function LocationScreen() {
       // Registrar los datos exactos que se van a enviar
       console.log(`Enviando a API - ID: ${petId}, Lat: ${latitude}, Lng: ${longitude}`);
       
-      // Enviar al servidor - asegurándose de que los tipos sean correctos
-      await sendPetLocation(
+      // Enviar al servidor - usar await para asegurar que se complete
+      const result = await sendPetLocation(
         petId,
         latitude,
         longitude
       );
       
+      console.log('Respuesta del servidor al enviar ubicación:', result);
+      
       // Actualizar hora del último envío
       const now = new Date();
       setLastSentTime(now);
       
-      // Agregar ubicación al historial si es diferente de la anterior
-      if (shouldAddLocation(location)) {
-        setLocationHistory(prevHistory => [
-          ...prevHistory,
-          {
-            latitude,
-            longitude,
-            timestamp: now.getTime()
-          }
-        ]);
-      }
+      // Agregar ubicación al historial
+      setLocationHistory(prevHistory => [
+        ...prevHistory,
+        {
+          latitude,
+          longitude,
+          timestamp: now.getTime()
+        }
+      ]);
+      
+      // Refrescar el historial de ubicaciones después de añadir una nueva
+      setTimeout(() => {
+        fetchLocationHistory(petId);
+      }, 2000); // Esperar 2 segundos para que el backend procese la nueva ubicación
       
       console.log(`Ubicación enviada para ${selectedPet?.nombre}: ${now.toLocaleTimeString()}`);
     } catch (error) {
-      console.error('Error al enviar ubicación:', error);
+      console.error('Error al enviar ubicación:', error.message);
+      // Intentar mostrar detalles adicionales si están disponibles
+      if (error.response) {
+        console.error('Detalles del error:', JSON.stringify(error.response.data));
+      }
     }
   };
 
@@ -729,13 +768,13 @@ const styles = StyleSheet.create({
   },
   lastUpdateContainer: {
     position: 'absolute',
-    top: 10,
-    left: 10,
+    bottom: 70,
     right: 10,
     backgroundColor: 'rgba(255, 255, 255, 0.8)',
     padding: 8,
     borderRadius: 8,
-    alignItems: 'center',
+    alignItems: 'flex-end',
+    maxWidth: '70%',
   },
   lastUpdateText: {
     fontSize: 12,

@@ -33,23 +33,29 @@ const LocationTracker = ({ mascotaId, mascotaNombre }) => {
 
   // Efecto para manejar el intervalo de seguimiento
   useEffect(() => {
+    // Limpiar cualquier intervalo existente primero
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+      console.log('Intervalo existente limpiado');
+    }
+    
     if (trackingActive) {
+      console.log(`Iniciando seguimiento para mascota: ${mascotaNombre} (ID: ${mascotaId})`);
+      
       // Enviar ubicación inmediatamente al activar
       sendLocationSilently();
       
-      // Configurar intervalo para enviar cada minuto (60000 ms)
+      // Configurar intervalo para verificar ubicación cada minuto (60000 ms)
       intervalRef.current = setInterval(() => {
-        sendLocationSilently();
-      }, 60000);
+        console.log('Verificando si la ubicación ha cambiado...');
+        checkAndSendLocation();
+      }, 60000); // Exactamente 60 segundos
       
-      console.log('Seguimiento activado - enviando ubicación cada minuto');
+      console.log('Seguimiento activado - verificando ubicación cada minuto');
     } else {
       // Limpiar intervalo cuando se desactiva el seguimiento
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-        console.log('Seguimiento desactivado');
-      }
+      console.log('Seguimiento desactivado');
     }
 
     // Limpiar intervalo al desmontar el componente
@@ -89,6 +95,66 @@ const LocationTracker = ({ mascotaId, mascotaNombre }) => {
     }
   };
 
+  // Función para verificar si la ubicación ha cambiado y enviarla
+  const checkAndSendLocation = async () => {
+    try {
+      // Obtener ubicación actual
+      const currentLocation = await getCurrentLocation();
+      
+      if (!currentLocation) {
+        console.error('No se pudo obtener la ubicación actual');
+        return;
+      }
+      
+      // Verificar si la ubicación ha cambiado significativamente
+      if (hasLocationChanged(currentLocation)) {
+        console.log('Ubicación ha cambiado, enviando actualización...');
+        // Enviar la ubicación solo si ha cambiado
+        sendLocationSilently();
+      } else {
+        console.log('Ubicación no ha cambiado significativamente, omitiendo envío');
+      }
+    } catch (error) {
+      console.error('Error al verificar cambio de ubicación:', error);
+    }
+  };
+
+  // Función para determinar si la ubicación ha cambiado significativamente
+  const hasLocationChanged = (newLocation) => {
+    // Si no hay ubicación previa, siempre considerar que ha cambiado
+    if (!location) return true;
+    
+    // Calcular distancia entre la ubicación anterior y la nueva
+    const distance = calculateDistance(
+      location.coords.latitude,
+      location.coords.longitude,
+      newLocation.coords.latitude,
+      newLocation.coords.longitude
+    );
+    
+    // Solo considerar cambio si la distancia es mayor a 5 metros (0.005 km)
+    return distance > 0.005;
+  };
+
+  // Función para calcular la distancia entre dos coordenadas (fórmula de Haversine)
+  const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 6371; // Radio de la Tierra en km
+    const dLat = deg2rad(lat2 - lat1);
+    const dLon = deg2rad(lon2 - lon1);
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * 
+      Math.sin(dLon/2) * Math.sin(dLon/2); 
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
+    const d = R * c; // Distancia en km
+    return d;
+  };
+
+  // Función para convertir grados a radianes
+  const deg2rad = (deg) => {
+    return deg * (Math.PI/180);
+  };
+
   // Función para enviar ubicación silenciosamente (sin alertas)
   const sendLocationSilently = async () => {
     try {
@@ -103,8 +169,11 @@ const LocationTracker = ({ mascotaId, mascotaNombre }) => {
       // Extraer coordenadas
       const { latitude, longitude } = currentLocation.coords;
       
+      console.log(`Intentando enviar ubicación - Lat: ${latitude}, Lon: ${longitude}`);
+      
       // Enviar ubicación al servidor
-      await sendPetLocation(mascotaId, latitude, longitude);
+      const response = await sendPetLocation(mascotaId, latitude, longitude);
+      console.log('Respuesta del servidor:', response);
       
       // Actualizar hora del último envío
       const now = new Date();
@@ -112,7 +181,10 @@ const LocationTracker = ({ mascotaId, mascotaNombre }) => {
       
       console.log(`Ubicación enviada: ${now.toLocaleTimeString()}`);
     } catch (error) {
-      console.error('Error al enviar ubicación:', error);
+      console.error('Error al enviar ubicación:', error.message);
+      if (error.response) {
+        console.error('Detalles del error:', JSON.stringify(error.response.data));
+      }
     }
   };
 
@@ -159,7 +231,7 @@ const LocationTracker = ({ mascotaId, mascotaNombre }) => {
   if (errorMsg) {
     statusText = errorMsg;
   } else if (location) {
-    statusText = `Lat: ${location.coords.latitude.toFixed(5)}, Lon: ${location.coords.longitude.toFixed(5)}`;
+    statusText = `Lat: ${location.coords.latitude}, Lon: ${location.coords.longitude}`;
   }
 
   return (

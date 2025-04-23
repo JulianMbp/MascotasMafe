@@ -14,29 +14,52 @@ from rest_framework.decorators import api_view
 
 class LocationView(APIView):
     def get(self, request, *args, **kwargs):
-        # Limpiar ubicaciones antiguas antes de devolver resultados
-        self.clean_old_locations()
-        
-        if 'mascota_id' in request.query_params:
-            # Obtener la última ubicación de una mascota específica
-            locations = Location.objects.filter(
-                mascota_id=request.query_params['mascota_id']
-            ).order_by('-created_at').first()  # Ordenar por fecha de creación descendente
-            if locations:
-                serializer = LocationSerializer(locations)
+        try:
+            # Parámetros de la solicitud
+            mascota_id = request.query_params.get('mascota_id')
+            minutos = int(request.query_params.get('minutos', 30))  # Por defecto 30 minutos
+            
+            # Si se solicita una mascota específica
+            if mascota_id:
+                # Si solo queremos la última ubicación
+                if request.query_params.get('ultima', 'false').lower() == 'true':
+                    location = Location.objects.filter(
+                        mascota_id=mascota_id
+                    ).order_by('-created_at').first()
+                    
+                    if location:
+                        serializer = LocationSerializer(location)
+                        return Response(serializer.data)
+                    return Response(
+                        {'mensaje': 'No se encontró ubicación para esta mascota'},
+                        status=status.HTTP_404_NOT_FOUND
+                    )
+                
+                # Si queremos el historial reciente de una mascota
+                time_limit = timezone.now() - timedelta(minutes=minutos)
+                locations = Location.objects.filter(
+                    mascota_id=mascota_id,
+                    created_at__gte=time_limit
+                ).order_by('-created_at')[:100]  # Máximo 100 ubicaciones
+                
+                serializer = LocationSerializer(locations, many=True)
                 return Response(serializer.data)
+            
+            # Si no se especifica mascota, devolver ubicaciones recientes de todas las mascotas
+            time_limit = timezone.now() - timedelta(minutes=minutos)
+            locations = Location.objects.filter(
+                created_at__gte=time_limit
+            ).order_by('-created_at')[:100]  # Máximo 100 ubicaciones
+            
+            serializer = LocationSerializer(locations, many=True)
+            return Response(serializer.data)
+            
+        except Exception as e:
+            print(f"Error en LocationView.get: {str(e)}")
             return Response(
-                {'message': 'No se encontró ubicación para esta mascota'},
-                status=status.HTTP_404_NOT_FOUND
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-        
-        # Obtener solo las ubicaciones de hoy
-        today = timezone.now().date()
-        locations = Location.objects.filter(
-            created_at__date=today
-        ).order_by('-created_at')
-        serializer = LocationSerializer(locations, many=True)
-        return Response(serializer.data)
 
     def post(self, request, *args, **kwargs):
         # Crear nueva ubicación sin desactivar las anteriores
@@ -45,24 +68,26 @@ class LocationView(APIView):
             serializer.save()
             return Response(
                 {
-                    'message': 'Ubicación registrada con éxito',
+                    'mensaje': 'Ubicación registrada con éxito',
                     'data': serializer.data
                 },
                 status=status.HTTP_201_CREATED
             )
         return Response(
             {
-                'message': 'Error al registrar ubicación',
-                'errors': serializer.errors
+                'mensaje': 'Error al registrar ubicación',
+                'errores': serializer.errors
             },
             status=status.HTTP_400_BAD_REQUEST
         )
 
     def clean_old_locations(self):
-        """Elimina las ubicaciones de días anteriores"""
+        """Elimina las ubicaciones más antiguas que una semana para mantener la base de datos eficiente"""
         try:
-            today = timezone.now().date()
-            Location.objects.filter(created_at__date__lt=today).delete()
+            week_ago = timezone.now() - timedelta(days=7)
+            deleted, _ = Location.objects.filter(created_at__lt=week_ago).delete()
+            if deleted > 0:
+                print(f"Se eliminaron {deleted} ubicaciones antiguas")
         except Exception as e:
             print(f"Error al limpiar ubicaciones antiguas: {str(e)}")
 
@@ -128,17 +153,31 @@ class LocationMobileView(APIView):
 @api_view(['GET'])
 def get_latest_locations(request):
     try:
-        # Limpiar ubicaciones antiguas
-        today = timezone.now().date()
-        Location.objects.filter(created_at__date__lt=today).delete()
-        
+        # Obtener parámetros de la solicitud
         last_id = request.query_params.get('last_id', 0)
+        mascota_id = request.query_params.get('mascota_id')
+        minutos = int(request.query_params.get('minutos', 30))  # Por defecto 30 minutos
         
-        # Obtener solo ubicaciones de hoy
-        latest_locations = Location.objects.filter(
-            id__gt=last_id,
-            created_at__date=today
-        ).select_related('mascota').order_by('id')
+        # Calcular el tiempo límite (normalmente 30 minutos atrás)
+        time_limit = timezone.now() - timedelta(minutes=minutos)
+        
+        # Iniciar la consulta base
+        query = Location.objects.filter(
+            created_at__gte=time_limit  # Solo ubicaciones de los últimos X minutos
+        )
+        
+        # Filtrar por ID (opcional)
+        if last_id and int(last_id) > 0:
+            query = query.filter(id__gt=int(last_id))
+            
+        # Filtrar por mascota si se proporciona
+        if mascota_id:
+            query = query.filter(mascota_id=mascota_id)
+        
+        # Ordenar y limitar resultados
+        latest_locations = query.select_related('mascota').order_by('-created_at')[:100]  # Máximo 100 ubicaciones
+        
+        print(f"Obteniendo ubicaciones de los últimos {minutos} minutos. Encontradas: {latest_locations.count()}")
         
         serializer = LocationSerializer(latest_locations, many=True)
         return Response(serializer.data)

@@ -2,8 +2,8 @@ from django.db import models
 
 class Location(models.Model):
     mascota = models.ForeignKey('mascotas.Mascota', related_name='locations', on_delete=models.CASCADE)
-    latitude = models.DecimalField(max_digits=9, decimal_places=6)
-    longitude = models.DecimalField(max_digits=9, decimal_places=6)
+    latitude = models.DecimalField(max_digits=13, decimal_places=10)
+    longitude = models.DecimalField(max_digits=13, decimal_places=10)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     is_active = models.BooleanField(default=True)
