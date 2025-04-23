@@ -3,6 +3,32 @@ import React, { useRef } from 'react';
 import { Animated, Image, Platform, SafeAreaView, StatusBar, StyleSheet, Text, TouchableWithoutFeedback, View } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
+// Componente Footer separado para mostrar créditos
+export const Footer = () => {
+  return (
+    <View style={footerStyles.container}>
+      <Text style={footerStyles.text}>Hecho con ❤️ por Julian B.</Text>
+      <Text style={footerStyles.text}>© {new Date().getFullYear()} Todos los derechos reservados</Text>
+    </View>
+  );
+};
+
+const footerStyles = StyleSheet.create({
+  container: {
+    padding: 10,
+    backgroundColor: '#f8f9fa',
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+  },
+  text: {
+    fontSize: 12,
+    color: '#888',
+    textAlign: 'center',
+    marginBottom: 2,
+  },
+});
+
 export default function Header() {
   const route = useRoute();
   const navigation = useNavigation();

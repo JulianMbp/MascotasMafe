@@ -1,10 +1,11 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { Animated, Dimensions, StyleSheet } from 'react-native';
 
+// Sacamos esta variable a nivel de módulo porque no es un hook
 const { width } = Dimensions.get('window');
 
 /**
- * Componente que aplica transiciones animadas entre pestañas
+ * Componente que aplica transiciones animadas entre pestañas (optimizado)
  * 
  * @param {Object} props - Propiedades del componente
  * @param {React.ReactNode} props.children - Componente de pantalla a mostrar
@@ -16,66 +17,81 @@ const TabTransition = ({
   isFocused, 
   transitionType = 'fade',
 }) => {
+  // Usamos referencias para las animaciones para que persistan entre renderizados
   const opacity = useRef(new Animated.Value(0)).current;
   const translateX = useRef(new Animated.Value(width)).current;
   const translateY = useRef(new Animated.Value(100)).current;
   const scale = useRef(new Animated.Value(0.9)).current;
 
+  // Optimizamos la configuración de animación con useMemo
+  const animationConfig = useMemo(() => {
+    return {
+      timing: {
+        duration: 250,
+        useNativeDriver: true,
+      },
+      spring: {
+        tension: 50,
+        friction: 7,
+        useNativeDriver: true,
+      }
+    };
+  }, []);
+
   useEffect(() => {
     if (isFocused) {
-      // Animaciones cuando la pestaña gana el foco
+      // Reutilizamos las animaciones para evitar recrearlas en cada cambio de foco
+      let animation;
+      
       switch (transitionType) {
         case 'slide':
-          Animated.spring(translateX, {
+          animation = Animated.spring(translateX, {
             toValue: 0,
-            tension: 50,
-            friction: 10,
-            useNativeDriver: true,
-          }).start();
+            ...animationConfig.spring,
+          });
           break;
         case 'slideUp':
-          Animated.spring(translateY, {
+          animation = Animated.spring(translateY, {
             toValue: 0,
-            tension: 50,
-            friction: 10,
-            useNativeDriver: true,
-          }).start();
+            ...animationConfig.spring,
+          });
           break;
         case 'zoom':
-          Animated.parallel([
+          animation = Animated.parallel([
             Animated.timing(opacity, {
               toValue: 1,
-              duration: 250,
-              useNativeDriver: true,
+              ...animationConfig.timing,
             }),
             Animated.spring(scale, {
               toValue: 1,
-              tension: 50,
-              friction: 7,
-              useNativeDriver: true,
+              ...animationConfig.spring,
             }),
-          ]).start();
+          ]);
           break;
         case 'fade':
         default:
-          Animated.timing(opacity, {
+          animation = Animated.timing(opacity, {
             toValue: 1,
-            duration: 300,
-            useNativeDriver: true,
-          }).start();
+            ...animationConfig.timing,
+          });
           break;
       }
+      
+      // Iniciar la animación y limpiarla cuando se desmonte el componente
+      animation.start();
+      return () => animation.stop();
     } else {
       // Reiniciar valores de animación cuando pierde el foco
+      // Nota: Usamos setValue para evitar animaciones adicionales al salir
       opacity.setValue(0);
       translateX.setValue(width);
       translateY.setValue(100);
       scale.setValue(0.9);
     }
-  }, [isFocused, opacity, translateX, translateY, scale, transitionType]);
+  }, [isFocused, opacity, translateX, translateY, scale, transitionType, animationConfig]);
 
-  // Determinar el estilo de transformación según el tipo de transición
-  const getAnimatedStyle = () => {
+  // Determinar el estilo de transformación según el tipo de transición con useMemo
+  const animatedStyle = useMemo(() => {
     switch (transitionType) {
       case 'slide':
         return {
@@ -96,15 +112,16 @@ const TabTransition = ({
           opacity,
         };
     }
-  };
+  }, [transitionType, opacity, translateX, translateY, scale]);
 
+  // Si no está enfocado, retornamos null para no renderizar nada
   if (!isFocused) {
-    // Si no está enfocado, no mostrar nada
     return null;
   }
 
+  // Usamos React.memo internamente para evitar rerenderizados innecesarios
   return (
-    <Animated.View style={[styles.container, getAnimatedStyle()]}>
+    <Animated.View style={[styles.container, animatedStyle]}>
       {children}
     </Animated.View>
   );
@@ -117,4 +134,5 @@ const styles = StyleSheet.create({
   },
 });
 
-export default TabTransition; 
+// Exportamos un componente memorizado para evitar rerenderizados innecesarios
+export default React.memo(TabTransition); 

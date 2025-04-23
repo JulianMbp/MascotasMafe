@@ -28,8 +28,11 @@
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
-        "ACCESS_BACKGROUND_LOCATION"
-      ]
+        "ACCESS_BACKGROUND_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ],
+      "package": "com.julian_mbp.canpestreapp"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -44,6 +47,11 @@
         }
       ]
     ],
-    "description": "Aplicación para rastreo de mascotas. Utiliza OpenStreetMap para la visualización de mapas (© OpenStreetMap contributors)."
+    "description": "Aplicación para rastreo de mascotas. Utiliza OpenStreetMap para la visualización de mapas (© OpenStreetMap contributors).",
+    "extra": {
+      "eas": {
+        "projectId": "b729b814-a46d-467a-9f2e-14788787b0c4"
+      }
+    }
   }
 }

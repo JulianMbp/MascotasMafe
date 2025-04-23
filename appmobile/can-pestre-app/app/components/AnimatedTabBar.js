@@ -1,20 +1,33 @@
-import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
-import React, { useRef } from 'react';
-import { Animated, Dimensions, StyleSheet, TouchableOpacity, View } from 'react-native';
-
-const { width } = Dimensions.get('window');
+import React, { memo, useEffect, useRef } from 'react';
+import { Animated, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 /**
- * TabBar personalizado con animaciones al cambiar de pestaña
- * 
- * @param {BottomTabBarProps} props - Props del BottomTabBar
- * @returns {React.ReactNode} Componente renderizado
+ * TabBar personalizado con animaciones simplificadas
  */
 function AnimatedTabBar({ state, descriptors, navigation }) {
-  // Referencia para mantener las animaciones por cada ruta
-  const animatedValues = useRef(
-    state.routes.map((_, index) => new Animated.Value(index === state.index ? 1 : 0))
-  ).current;
+  // Creamos una animación para cada ruta
+  const animatedValues = useRef({});
+  
+  // Aseguramos que cada ruta tenga su valor animado
+  state.routes.forEach((route, index) => {
+    if (animatedValues.current[route.key] === undefined) {
+      animatedValues.current[route.key] = new Animated.Value(
+        index === state.index ? 1 : 0
+      );
+    }
+  });
+
+  // Manejar animaciones cuando cambia el foco
+  useEffect(() => {
+    state.routes.forEach((route, index) => {
+      const isFocused = state.index === index;
+      Animated.timing(animatedValues.current[route.key], {
+        toValue: isFocused ? 1 : 0,
+        duration: 200,
+        useNativeDriver: true,
+      }).start();
+    });
+  }, [state.index, state.routes]);
 
   return (
     <View style={styles.tabBarContainer}>
@@ -22,40 +35,9 @@ function AnimatedTabBar({ state, descriptors, navigation }) {
         const { options } = descriptors[route.key];
         const label = options.tabBarLabel || options.title || route.name;
         const isFocused = state.index === index;
-
+        
         // Obtener el icono desde las opciones
         const TabBarIcon = options.tabBarIcon;
-        
-        // Animaciones para el ícono activo
-        const iconScale = animatedValues[index].interpolate({
-          inputRange: [0, 0.5, 1],
-          outputRange: [1, 1.2, 1.1],
-        });
-        
-        const iconOpacity = animatedValues[index].interpolate({
-          inputRange: [0, 1],
-          outputRange: [0.7, 1],
-        });
-
-        // Indicador de pestaña activa
-        const indicatorPosition = animatedValues[index].interpolate({
-          inputRange: [0, 1],
-          outputRange: [20, 0],
-        });
-
-        const indicatorOpacity = animatedValues[index].interpolate({
-          inputRange: [0, 1],
-          outputRange: [0, 1],
-        });
-
-        // Animar cuando cambia el foco
-        React.useEffect(() => {
-          Animated.timing(animatedValues[index], {
-            toValue: isFocused ? 1 : 0,
-            duration: 250,
-            useNativeDriver: true,
-          }).start();
-        }, [isFocused, index]);
 
         const onPress = () => {
           const event = navigation.emit({
@@ -69,13 +51,6 @@ function AnimatedTabBar({ state, descriptors, navigation }) {
           }
         };
 
-        const onLongPress = () => {
-          navigation.emit({
-            type: 'tabLongPress',
-            target: route.key,
-          });
-        };
-
         return (
           <TouchableOpacity
             key={route.key}
@@ -84,51 +59,35 @@ function AnimatedTabBar({ state, descriptors, navigation }) {
             accessibilityLabel={options.tabBarAccessibilityLabel}
             testID={options.tabBarTestID}
             onPress={onPress}
-            onLongPress={onLongPress}
             style={styles.tabItem}
+            activeOpacity={0.7}
           >
             <View style={styles.itemContainer}>
-              {/* Ícono animado */}
-              <Animated.View
-                style={[
-                  styles.iconContainer,
-                  {
-                    transform: [{ scale: iconScale }],
-                    opacity: iconOpacity,
-                  },
-                ]}
-              >
+              {/* Ícono */}
+              <View style={styles.iconContainer}>
                 {TabBarIcon && TabBarIcon({
                   focused: isFocused,
                   color: isFocused ? '#00bf97' : '#95a5a6',
                   size: 24,
                 })}
-              </Animated.View>
+              </View>
 
               {/* Etiqueta */}
-              <Animated.Text
+              <Text
                 style={[
                   styles.tabLabel,
                   {
                     color: isFocused ? '#00bf97' : '#95a5a6',
-                    opacity: iconOpacity,
                   },
                 ]}
+                numberOfLines={1}
               >
                 {label}
-              </Animated.Text>
+              </Text>
 
-              {/* Indicador de pestaña activa */}
+              {/* Indicador simplificado de pestaña activa */}
               {isFocused && (
-                <Animated.View
-                  style={[
-                    styles.activeIndicator,
-                    {
-                      transform: [{ translateY: indicatorPosition }],
-                      opacity: indicatorOpacity,
-                    },
-                  ]}
-                />
+                <View style={styles.activeIndicator} />
               )}
             </View>
           </TouchableOpacity>
@@ -141,11 +100,11 @@ function AnimatedTabBar({ state, descriptors, navigation }) {
 const styles = StyleSheet.create({
   tabBarContainer: {
     flexDirection: 'row',
-    height: 80,
+    height: Platform.OS === 'android' ? 60 : 80,
     backgroundColor: 'white',
     borderTopWidth: 1,
     borderTopColor: '#f2f2f2',
-    paddingBottom: 3,
+    paddingBottom: Platform.OS === 'android' ? 5 : 20,
     paddingTop: 5,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -2 },
@@ -166,7 +125,7 @@ const styles = StyleSheet.create({
   iconContainer: {
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   tabLabel: {
     fontSize: 12,
@@ -175,7 +134,7 @@ const styles = StyleSheet.create({
   },
   activeIndicator: {
     position: 'absolute',
-    bottom: -8,
+    bottom: -4,
     width: 4,
     height: 4,
     borderRadius: 2,
@@ -183,4 +142,5 @@ const styles = StyleSheet.create({
   },
 });
 
-export default AnimatedTabBar; 
+// Usar memo para evitar rerenderizados innecesarios
+export default memo(AnimatedTabBar); 
