@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
+import axios from 'axios';
 import * as Location from 'expo-location';
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { WebView } from 'react-native-webview';
-import { fetchMascotas, sendPetLocation } from '../../services/api';
+import { API_URL, fetchMascotas, sendPetLocation } from '../../services/api';
 import { generateColorFromString } from '../../utils/colors';
 import { formatearImagen } from '../../utils/formatImage';
 
@@ -14,9 +15,10 @@ export default function LocationScreen() {
   const [locationLoading, setLocationLoading] = useState(true);
   const [currentLocation, setCurrentLocation] = useState(null);
   const [locationHistory, setLocationHistory] = useState([]);
-  const [isTracking, setIsTracking] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
   const [lastSentTime, setLastSentTime] = useState(null);
+  const [isReloading, setIsReloading] = useState(false);
+  const [fetchingHistory, setFetchingHistory] = useState(false);
   const intervalRef = useRef(null);
   const webviewRef = useRef(null);
 
@@ -91,47 +93,39 @@ export default function LocationScreen() {
       // Cuando cambie la mascota seleccionada, enviar la ubicación
       sendLocationData(currentLocation, selectedPet.id);
       
-      // Limpiar el historial de ubicaciones para la nueva mascota
-      setLocationHistory([]);
+      // Obtener historial de ubicaciones para la mascota seleccionada
+      fetchLocationHistory(selectedPet.id);
       
-      // Si hay seguimiento activo, detenerlo y reiniciarlo
-      if (isTracking) {
-        if (intervalRef.current) {
-          clearInterval(intervalRef.current);
-        }
-        
-        startTracking();
-      }
+      // Iniciar seguimiento automático
+      startTracking();
       
       // Actualizar el mapa si tenemos el WebView listo
       updateMap();
     }
   }, [selectedPet]);
 
-  // Efecto para manejar el seguimiento automático
+  // Iniciar el seguimiento automático al cargar el componente
   useEffect(() => {
-    if (isTracking) {
+    if (selectedPet && currentLocation) {
       startTracking();
-    } else {
-      // Detener el seguimiento si está desactivado
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-        console.log('Seguimiento desactivado');
-      }
     }
-
+    
     return () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
     };
-  }, [isTracking]);
+  }, [selectedPet, currentLocation]);
 
-  // Función para iniciar el seguimiento
+  // Función para iniciar el seguimiento automático
   const startTracking = () => {
     if (!selectedPet) return;
+    
+    // Detener intervalo existente si lo hay
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+    }
     
     // Configurar intervalo para enviar cada minuto (60000 ms)
     intervalRef.current = setInterval(async () => {
@@ -154,7 +148,90 @@ export default function LocationScreen() {
       }
     }, 60000);
     
-    console.log('Seguimiento activado - enviando ubicación cada minuto');
+    console.log('Seguimiento automático activado - enviando ubicación cada minuto');
+  };
+
+  // Función para obtener el historial de ubicaciones de una mascota
+  const fetchLocationHistory = async (petId) => {
+    if (!petId) return;
+    
+    try {
+      setFetchingHistory(true);
+      setLocationHistory([]);
+      
+      // Usar la URL de la API configurada en lugar de localhost
+      const response = await axios.get(`${API_URL}/location/location_list`);
+      
+      if (response.data && Array.isArray(response.data)) {
+        // Filtrar ubicaciones por mascota seleccionada y ordenar por fecha
+        const petLocations = response.data
+          .filter(location => location.mascota === petId)
+          .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+        
+        if (petLocations.length > 0) {
+          // Convertir a formato para el historial
+          const formattedLocations = petLocations.map(loc => ({
+            latitude: parseFloat(loc.latitude),
+            longitude: parseFloat(loc.longitude),
+            timestamp: new Date(loc.created_at).getTime()
+          }));
+          
+          // Actualizar historial
+          setLocationHistory(formattedLocations);
+          
+          console.log(`Cargadas ${formattedLocations.length} ubicaciones previas`);
+          
+          // Actualizar mapa con el historial
+          if (webviewRef.current) {
+            drawLocationHistory(formattedLocations);
+          }
+        } else {
+          console.log('No se encontraron ubicaciones previas para esta mascota');
+        }
+      }
+    } catch (error) {
+      console.error('Error al obtener historial de ubicaciones:', error);
+      console.error('Detalles del error:', error.response ? error.response.data : 'Sin detalles');
+    } finally {
+      setFetchingHistory(false);
+    }
+  };
+
+  // Función para dibujar el historial de ubicaciones en el mapa
+  const drawLocationHistory = (locations) => {
+    if (!webviewRef.current || locations.length === 0) return;
+    
+    try {
+      // Crear script para dibujar las líneas en el mapa
+      const points = locations.map(loc => `[${loc.latitude}, ${loc.longitude}]`).join(',');
+      
+      const historyScript = `
+        try {
+          // Limpiar ruta existente
+          if (window.path) {
+            window.map.removeLayer(window.path);
+          }
+          
+          // Crear nueva ruta con los puntos históricos
+          window.path = L.polyline([${points}], {
+            color: '#FF5252',
+            weight: 4,
+            opacity: 0.7
+          }).addTo(window.map);
+          
+          // Ajustar zoom para mostrar toda la ruta
+          if (window.path.getBounds().isValid()) {
+            window.map.fitBounds(window.path.getBounds(), { padding: [50, 50] });
+          }
+        } catch(e) {
+          console.error('Error dibujando historial:', e);
+        }
+      `;
+      
+      webviewRef.current.injectJavaScript(historyScript);
+    } catch (error) {
+      console.error('Error al renderizar historial en el mapa:', error);
+    }
   };
 
   // Función para actualizar el mapa con la ubicación actual
@@ -173,7 +250,7 @@ export default function LocationScreen() {
           }
           window.map.setView([${latitude}, ${longitude}], 16);
           
-          // Agregar al historial de ubicaciones si existe
+          // Actualizar la ruta si existe
           if (window.path) {
             window.path.addLatLng([${latitude}, ${longitude}]);
           }
@@ -193,7 +270,7 @@ export default function LocationScreen() {
         try {
           if (window.path) {
             window.map.removeLayer(window.path);
-            window.path = L.polyline([], {color: '#4CAF50', weight: 3, dashArray: '5, 5'}).addTo(window.map);
+            window.path = L.polyline([], {color: '#FF5252', weight: 4, opacity: 0.7}).addTo(window.map);
           }
         } catch(e) {
           console.error('Error clearing path:', e);
@@ -245,10 +322,23 @@ export default function LocationScreen() {
   // Función para enviar datos de ubicación al servidor
   const sendLocationData = async (location, petId) => {
     try {
+      if (!location || !location.coords || !petId) {
+        console.error('Error: Datos de ubicación o ID de mascota faltantes');
+        return;
+      }
+      
+      // Obtener datos exactos de la ubicación
       const { latitude, longitude } = location.coords;
       
-      // Enviar ubicación al servidor
-      await sendPetLocation(petId, latitude, longitude);
+      // Registrar los datos exactos que se van a enviar
+      console.log(`Enviando a API - ID: ${petId}, Lat: ${latitude}, Lng: ${longitude}`);
+      
+      // Enviar al servidor - asegurándose de que los tipos sean correctos
+      await sendPetLocation(
+        petId,
+        latitude,
+        longitude
+      );
       
       // Actualizar hora del último envío
       const now = new Date();
@@ -278,9 +368,34 @@ export default function LocationScreen() {
     clearMapPath(); // Limpiar el recorrido al cambiar de mascota
   };
 
-  // Función para activar/desactivar el seguimiento automático
-  const toggleTracking = () => {
-    setIsTracking(!isTracking);
+  // Función para refrescar manualmente la ubicación actual y obtener historial
+  const refreshLocation = async () => {
+    if (!selectedPet) return;
+    
+    try {
+      setIsReloading(true); // Activar indicador de carga
+      
+      // Obtener ubicación actual
+      const newLocation = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High
+      });
+      
+      setCurrentLocation(newLocation);
+      
+      // Enviar ubicación actualizada al servidor
+      await sendLocationData(newLocation, selectedPet.id);
+      
+      // Volver a cargar el historial de ubicaciones
+      await fetchLocationHistory(selectedPet.id);
+      
+      // Opcional: añadir mensaje de confirmación
+      console.log('Ubicación actualizada manualmente');
+    } catch (error) {
+      console.error('Error al actualizar ubicación:', error);
+      setErrorMsg('Error al actualizar ubicación');
+    } finally {
+      setIsReloading(false); // Desactivar indicador de carga
+    }
   };
 
   // Generamos el HTML para el mapa de OpenStreetMap
@@ -340,11 +455,11 @@ export default function LocationScreen() {
           var marker = window.marker = L.marker([${lat}, ${lng}]).addTo(map);
           marker.bindPopup("${petName}").openPopup();
           
-          // Inicializar ruta
+          // Inicializar ruta con color rojo
           var path = window.path = L.polyline([], {
-            color: '#4CAF50',
-            weight: 3,
-            dashArray: '5, 5'
+            color: '#FF5252',
+            weight: 4,
+            opacity: 0.7
           }).addTo(map);
           
           // Agregar punto inicial a la ruta
@@ -397,6 +512,14 @@ export default function LocationScreen() {
   const handleWebViewLoad = () => {
     // Actualizar el mapa con la ubicación actual cuando el WebView está listo
     updateMap();
+    
+    // Si hay historial de ubicaciones, mostrarlo
+    if (locationHistory.length > 0) {
+      drawLocationHistory(locationHistory);
+    } else if (selectedPet) {
+      // Si no hay historial cargado pero hay mascota seleccionada, intentar cargar
+      fetchLocationHistory(selectedPet.id);
+    }
   };
 
   if (loading) {
@@ -460,31 +583,25 @@ export default function LocationScreen() {
             
             {/* Controles del mapa */}
             <View style={styles.mapControls}>
+              {/* Botón de recarga de ubicación */}
+              <TouchableOpacity 
+                style={styles.controlButton}
+                onPress={refreshLocation}
+                disabled={isReloading || !selectedPet}
+              >
+                {isReloading ? (
+                  <ActivityIndicator size="small" color="#4CAF50" />
+                ) : (
+                  <Ionicons name="refresh" size={24} color="#4CAF50" />
+                )}
+              </TouchableOpacity>
+              
+              {/* Botón de centrar mapa */}
               <TouchableOpacity 
                 style={styles.controlButton}
                 onPress={updateMap}
               >
                 <Ionicons name="locate" size={24} color="#4CAF50" />
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={[
-                  styles.trackingButton, 
-                  isTracking ? styles.trackingActiveButton : null
-                ]}
-                onPress={toggleTracking}
-              >
-                <Ionicons 
-                  name={isTracking ? "pause-circle" : "play-circle"} 
-                  size={24} 
-                  color={isTracking ? "#FFFFFF" : "#4CAF50"} 
-                />
-                <Text style={[
-                  styles.trackingButtonText,
-                  isTracking ? styles.trackingActiveText : null
-                ]}>
-                  {isTracking ? "Detener seguimiento" : "Iniciar seguimiento"}
-                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -640,36 +757,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 10,
+    marginHorizontal: 5,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 2,
-  },
-  trackingButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
-    padding: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  trackingActiveButton: {
-    backgroundColor: '#4CAF50',
-  },
-  trackingButtonText: {
-    marginLeft: 8,
-    color: '#4CAF50',
-    fontWeight: '500',
-  },
-  trackingActiveText: {
-    color: '#FFFFFF',
   },
 }); 

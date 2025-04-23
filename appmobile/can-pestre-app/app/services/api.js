@@ -1,8 +1,8 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
-import { clearCacheItem, getCacheData, setCacheData } from './cacheService';
 
 // URL base de la API - Asegúrate de cambiar esto según tu configuración local
-const API_URL = 'https://2a1d-161-18-52-113.ngrok-free.app';  // cambiar por url de ngrok
+export const API_URL = 'https://1381-161-18-52-113.ngrok-free.app';  // cambiar por url de ngrok
 
 // Creando una instancia de axios con la URL base
 const apiClient = axios.create({
@@ -12,143 +12,126 @@ const apiClient = axios.create({
   },
 });
 
-// Tiempos de expiración para diferentes tipos de datos (en milisegundos)
-const CACHE_EXPIRY = {
-  MASCOTAS_LIST: 5 * 60 * 1000,        // 5 minutos para listas de mascotas (aumentado)
-  MASCOTA_DETAIL: 2 * 60 * 1000,       // 2 minutos para detalles de mascota
-  DUEÑOS_LIST: 5 * 60 * 1000,          // 5 minutos para listas de dueños (aumentado)
-  DUEÑO_DETAIL: 2 * 60 * 1000,         // 2 minutos para detalles de dueño
-  IMAGE_DATA: 30 * 60 * 1000,          // 30 minutos para imágenes (más largo)
-};
-
-// Claves de caché para diferentes tipos de datos
-const CACHE_KEYS = {
+// Claves para los datos en AsyncStorage
+const STORAGE_KEYS = {
   MASCOTAS_LIST: 'mascotas_list',
   MASCOTA_DETAIL: (id) => `mascota_${id}`,
   DUEÑOS_LIST: 'dueños_list',
   DUEÑO_DETAIL: (id) => `dueño_${id}`,
-  IMAGE_DATA: (id) => `img_${id}`,     // Clave para imágenes individuales
+  LAST_FETCH_TIME: (key) => `last_fetch_${key}`,
 };
 
-// Variable para controlar si ya estamos en proceso de obtener datos
+// Tiempo mínimo entre solicitudes a la API (en milisegundos)
+const MIN_FETCH_INTERVAL = {
+  MASCOTAS_LIST: 30 * 1000,        // 30 segundos para listas de mascotas
+  MASCOTA_DETAIL: 60 * 1000,       // 1 minuto para detalles de mascota
+  DUEÑOS_LIST: 30 * 1000,          // 30 segundos para listas de dueños
+  DUEÑO_DETAIL: 60 * 1000,         // 1 minuto para detalles de dueño
+};
+
+// Variables para controlar solicitudes simultáneas
 let isFetchingMascotas = false;
 let isFetchingDueños = false;
 
 /**
- * Función genérica para obtener datos con caché
- * @param {string} cacheKey - Clave para el caché
- * @param {number} expiryTime - Tiempo de expiración para el caché
- * @param {Function} fetchFunction - Función para obtener datos del servidor
- * @param {boolean} forceRefresh - Si es true, ignora la caché y obtiene datos nuevos
+ * Verifica si se puede hacer una nueva solicitud a la API
+ * @param {string} key - Clave para el registro de tiempo
+ * @param {number} minInterval - Intervalo mínimo entre solicitudes
+ * @returns {Promise<boolean>} - true si se puede hacer una nueva solicitud
  */
-const fetchWithCache = async (cacheKey, expiryTime, fetchFunction, forceRefresh = false) => {
-  // Si se fuerza el refresco, no usamos la caché
-  if (!forceRefresh) {
-    try {
-      // Intentar obtener datos del caché
-      const cachedData = await getCacheData(cacheKey, expiryTime);
-      if (cachedData) {
-        console.log(`Usando datos en caché para: ${cacheKey}`);
-
-        // Si es la lista de mascotas, cargar las imágenes desde el caché individual
-        if (cacheKey === CACHE_KEYS.MASCOTAS_LIST && Array.isArray(cachedData)) {
-          const mascotasWithImages = await Promise.all(
-            cachedData.map(async (mascota) => {
-              if (!mascota.imagen && mascota.id) {
-                // Si no tiene imagen en el caché principal, intentar cargarla del caché individual
-                const imageCacheKey = CACHE_KEYS.IMAGE_DATA(mascota.id);
-                const cachedImage = await getCacheData(imageCacheKey, CACHE_EXPIRY.IMAGE_DATA);
-                if (cachedImage) {
-                  return { ...mascota, imagen: cachedImage };
-                }
-              }
-              return mascota;
-            })
-          );
-          return mascotasWithImages;
-        }
-        
-        return cachedData;
-      }
-    } catch (error) {
-      console.error(`Error al recuperar datos del caché ${cacheKey}:`, error);
-      // Continuamos con la petición al servidor
-    }
-  }
-  
-  // Si no hay caché o se fuerza el refresco, obtener datos del servidor
-  console.log(`Obteniendo datos frescos para: ${cacheKey}`);
-  const freshData = await fetchFunction();
-  
+const canFetchNewData = async (key, minInterval) => {
   try {
-    // Para mascotas_list, guardar metadatos y las imágenes por separado
-    if (cacheKey === CACHE_KEYS.MASCOTAS_LIST && Array.isArray(freshData)) {
-      // Guardar metadatos sin imágenes en el caché principal
-      const metadataOnly = freshData.map(mascota => {
-        // Primero guardar cada imagen en su propio caché
-        if (mascota.imagen && mascota.id) {
-          const imageCacheKey = CACHE_KEYS.IMAGE_DATA(mascota.id);
-          setCacheData(imageCacheKey, mascota.imagen, CACHE_EXPIRY.IMAGE_DATA)
-            .catch(err => console.error(`Error al guardar imagen en caché para mascota ${mascota.id}:`, err));
-          
-          // Retornar objeto sin imagen para el caché principal
-          return { ...mascota, imagen: null };
-        }
-        return mascota;
-      });
+    const lastFetchTimeKey = STORAGE_KEYS.LAST_FETCH_TIME(key);
+    const lastFetchTime = await AsyncStorage.getItem(lastFetchTimeKey);
+    
+    if (!lastFetchTime) return true;
+    
+    const now = Date.now();
+    const timeSinceLastFetch = now - parseInt(lastFetchTime, 10);
+    
+    return timeSinceLastFetch > minInterval;
+  } catch (error) {
+    console.error(`Error al verificar tiempo de última solicitud para ${key}:`, error);
+    return true; // En caso de error, permitimos hacer la solicitud
+  }
+};
+
+/**
+ * Registra el tiempo de la última solicitud a la API
+ * @param {string} key - Clave para el registro de tiempo
+ */
+const updateLastFetchTime = async (key) => {
+  try {
+    const lastFetchTimeKey = STORAGE_KEYS.LAST_FETCH_TIME(key);
+    await AsyncStorage.setItem(lastFetchTimeKey, Date.now().toString());
+  } catch (error) {
+    console.error(`Error al actualizar tiempo de última solicitud para ${key}:`, error);
+  }
+};
+
+/**
+ * Función para obtener datos con control de solicitudes repetidas
+ * @param {string} storageKey - Clave para AsyncStorage
+ * @param {string} fetchTimeKey - Clave para el registro de tiempo
+ * @param {number} minInterval - Intervalo mínimo entre solicitudes
+ * @param {Function} fetchFunction - Función para obtener datos del servidor
+ * @param {boolean} forceRefresh - Si es true, ignora el intervalo y obtiene datos nuevos
+ */
+const fetchWithThrottle = async (storageKey, fetchTimeKey, minInterval, fetchFunction, forceRefresh = false) => {
+  // Intentar obtener datos de AsyncStorage
+  try {
+    const storedData = await AsyncStorage.getItem(storageKey);
+    
+    // Si tenemos datos almacenados y no se fuerza actualización, verificamos si se puede hacer una nueva solicitud
+    if (storedData && !forceRefresh) {
+      const parsedData = JSON.parse(storedData);
+      const shouldFetch = await canFetchNewData(fetchTimeKey, minInterval);
       
-      // Guardar versión sin imágenes en caché principal
-      await setCacheData(cacheKey, metadataOnly, expiryTime);
-      
-      // Devolver los datos completos (con imágenes)
-      return freshData;
-    } else {
-      // Para otros tipos de datos, guardar normalmente
-      await setCacheData(cacheKey, freshData, expiryTime);
-      return freshData;
+      // Si no ha pasado suficiente tiempo desde la última solicitud, devolver datos almacenados
+      if (!shouldFetch) {
+        console.log(`Usando datos almacenados para: ${storageKey}`);
+        return parsedData;
+      }
     }
   } catch (error) {
-    console.error(`Error al guardar en caché ${cacheKey}:`, error);
-    // Continuamos retornando los datos aunque el caché falle
-    return freshData;
+    console.error(`Error al recuperar datos de AsyncStorage para ${storageKey}:`, error);
+    // Continuamos con la solicitud al servidor
   }
+  
+  // Obtener datos frescos del servidor
+  console.log(`Obteniendo datos frescos para: ${storageKey}`);
+  const freshData = await fetchFunction();
+  
+  // Guardar en AsyncStorage
+  try {
+    await AsyncStorage.setItem(storageKey, JSON.stringify(freshData));
+    await updateLastFetchTime(fetchTimeKey);
+  } catch (error) {
+    console.error(`Error al guardar datos en AsyncStorage para ${storageKey}:`, error);
+  }
+  
+  return freshData;
 };
 
 // Funciones para mascotas
 export const fetchMascotas = async (forceRefresh = false) => {
-  // Evitamos múltiples peticiones simultáneas
+  // Evitar múltiples solicitudes simultáneas
   if (isFetchingMascotas && !forceRefresh) {
-    console.log('Ya hay una petición en curso para mascotas, esperando...');
-    // Esperar 500ms y reintentar
+    console.log('Ya hay una solicitud en curso para mascotas, esperando...');
+    
+    // Intentar obtener datos almacenados mientras esperamos
+    try {
+      const storedData = await AsyncStorage.getItem(STORAGE_KEYS.MASCOTAS_LIST);
+      if (storedData) {
+        return JSON.parse(storedData);
+      }
+    } catch (error) {
+      // Ignorar errores y continuar
+    }
+    
+    // Esperar un momento y reintentar
     return new Promise(resolve => {
-      setTimeout(async () => {
-        // Intentar obtener de caché
-        try {
-          const cachedData = await getCacheData(CACHE_KEYS.MASCOTAS_LIST, CACHE_EXPIRY.MASCOTAS_LIST);
-          if (cachedData) {
-            console.log('Datos recuperados del caché: mascotas_list');
-            
-            // Cargar imágenes desde caché individual
-            const mascotasWithImages = await Promise.all(
-              cachedData.map(async (mascota) => {
-                if (!mascota.imagen && mascota.id) {
-                  const imageCacheKey = CACHE_KEYS.IMAGE_DATA(mascota.id);
-                  const cachedImage = await getCacheData(imageCacheKey, CACHE_EXPIRY.IMAGE_DATA);
-                  if (cachedImage) {
-                    return { ...mascota, imagen: cachedImage };
-                  }
-                }
-                return mascota;
-              })
-            );
-            
-            resolve(mascotasWithImages);
-            return;
-          }
-        } catch (error) {
-          // Ignorar errores de caché y continuar
-        }
-        // Si no hay caché, reintentar la petición
+      setTimeout(() => {
         resolve(fetchMascotas(forceRefresh));
       }, 500);
     });
@@ -156,9 +139,10 @@ export const fetchMascotas = async (forceRefresh = false) => {
   
   try {
     isFetchingMascotas = true;
-    return await fetchWithCache(
-      CACHE_KEYS.MASCOTAS_LIST,
-      CACHE_EXPIRY.MASCOTAS_LIST,
+    return await fetchWithThrottle(
+      STORAGE_KEYS.MASCOTAS_LIST,
+      'mascotas_list',
+      MIN_FETCH_INTERVAL.MASCOTAS_LIST,
       async () => {
         const response = await apiClient.get('mascotas/mascotas_list');
         return response.data;
@@ -175,9 +159,10 @@ export const fetchMascotas = async (forceRefresh = false) => {
 
 export const fetchMascotaById = async (id, forceRefresh = false) => {
   try {
-    return await fetchWithCache(
-      CACHE_KEYS.MASCOTA_DETAIL(id),
-      CACHE_EXPIRY.MASCOTA_DETAIL,
+    return await fetchWithThrottle(
+      STORAGE_KEYS.MASCOTA_DETAIL(id),
+      `mascota_${id}`,
+      MIN_FETCH_INTERVAL.MASCOTA_DETAIL,
       async () => {
         const response = await apiClient.get(`mascotas/mascotas_id/${id}`);
         return response.data;
@@ -193,8 +178,8 @@ export const fetchMascotaById = async (id, forceRefresh = false) => {
 export const createMascota = async (mascotaData) => {
   try {
     const response = await apiClient.post('mascotas/mascotas_create', mascotaData);
-    // Limpiar caché después de crear
-    await clearCacheItem(CACHE_KEYS.MASCOTAS_LIST);
+    // Limpiar datos almacenados
+    await AsyncStorage.removeItem(STORAGE_KEYS.MASCOTAS_LIST);
     return response.data;
   } catch (error) {
     console.error('Error al crear mascota:', error);
@@ -205,9 +190,9 @@ export const createMascota = async (mascotaData) => {
 export const updateMascota = async (id, mascotaData) => {
   try {
     const response = await apiClient.put(`mascotas/mascotas_update/${id}`, mascotaData);
-    // Limpiar caché después de actualizar
-    await clearCacheItem(CACHE_KEYS.MASCOTAS_LIST);
-    await clearCacheItem(CACHE_KEYS.MASCOTA_DETAIL(id));
+    // Limpiar datos almacenados
+    await AsyncStorage.removeItem(STORAGE_KEYS.MASCOTAS_LIST);
+    await AsyncStorage.removeItem(STORAGE_KEYS.MASCOTA_DETAIL(id));
     return response.data;
   } catch (error) {
     console.error(`Error al actualizar mascota con ID ${id}:`, error);
@@ -218,9 +203,9 @@ export const updateMascota = async (id, mascotaData) => {
 export const deleteMascota = async (id) => {
   try {
     const response = await apiClient.delete(`mascotas/mascotas_delete/${id}`);
-    // Limpiar caché después de eliminar
-    await clearCacheItem(CACHE_KEYS.MASCOTAS_LIST);
-    await clearCacheItem(CACHE_KEYS.MASCOTA_DETAIL(id));
+    // Limpiar datos almacenados
+    await AsyncStorage.removeItem(STORAGE_KEYS.MASCOTAS_LIST);
+    await AsyncStorage.removeItem(STORAGE_KEYS.MASCOTA_DETAIL(id));
     return response.data;
   } catch (error) {
     console.error(`Error al eliminar mascota con ID ${id}:`, error);
@@ -230,10 +215,34 @@ export const deleteMascota = async (id) => {
 
 // Funciones para dueños
 export const fetchDueños = async (forceRefresh = false) => {
+  // Evitar múltiples solicitudes simultáneas
+  if (isFetchingDueños && !forceRefresh) {
+    console.log('Ya hay una solicitud en curso para dueños, esperando...');
+    
+    // Intentar obtener datos almacenados mientras esperamos
+    try {
+      const storedData = await AsyncStorage.getItem(STORAGE_KEYS.DUEÑOS_LIST);
+      if (storedData) {
+        return JSON.parse(storedData);
+      }
+    } catch (error) {
+      // Ignorar errores y continuar
+    }
+    
+    // Esperar un momento y reintentar
+    return new Promise(resolve => {
+      setTimeout(() => {
+        resolve(fetchDueños(forceRefresh));
+      }, 500);
+    });
+  }
+  
   try {
-    return await fetchWithCache(
-      CACHE_KEYS.DUEÑOS_LIST,
-      CACHE_EXPIRY.DUEÑOS_LIST,
+    isFetchingDueños = true;
+    return await fetchWithThrottle(
+      STORAGE_KEYS.DUEÑOS_LIST,
+      'dueños_list',
+      MIN_FETCH_INTERVAL.DUEÑOS_LIST,
       async () => {
         const response = await apiClient.get('dueño/dueños_list');
         return response.data;
@@ -243,14 +252,17 @@ export const fetchDueños = async (forceRefresh = false) => {
   } catch (error) {
     console.error('Error al obtener dueños:', error);
     throw error;
+  } finally {
+    isFetchingDueños = false;
   }
 };
 
 export const fetchDueñoById = async (id, forceRefresh = false) => {
   try {
-    return await fetchWithCache(
-      CACHE_KEYS.DUEÑO_DETAIL(id),
-      CACHE_EXPIRY.DUEÑO_DETAIL,
+    return await fetchWithThrottle(
+      STORAGE_KEYS.DUEÑO_DETAIL(id),
+      `dueño_${id}`,
+      MIN_FETCH_INTERVAL.DUEÑO_DETAIL,
       async () => {
         const response = await apiClient.get(`dueño/dueños_id/${id}`);
         return response.data;
@@ -266,8 +278,8 @@ export const fetchDueñoById = async (id, forceRefresh = false) => {
 export const createDueño = async (dueñoData) => {
   try {
     const response = await apiClient.post('dueño/dueños_create', dueñoData);
-    // Limpiar caché después de crear
-    await clearCacheItem(CACHE_KEYS.DUEÑOS_LIST);
+    // Limpiar datos almacenados
+    await AsyncStorage.removeItem(STORAGE_KEYS.DUEÑOS_LIST);
     return response.data;
   } catch (error) {
     console.error('Error al crear dueño:', error);
@@ -278,9 +290,9 @@ export const createDueño = async (dueñoData) => {
 export const updateDueño = async (id, dueñoData) => {
   try {
     const response = await apiClient.put(`dueño/dueños_update/${id}`, dueñoData);
-    // Limpiar caché después de actualizar
-    await clearCacheItem(CACHE_KEYS.DUEÑOS_LIST);
-    await clearCacheItem(CACHE_KEYS.DUEÑO_DETAIL(id));
+    // Limpiar datos almacenados
+    await AsyncStorage.removeItem(STORAGE_KEYS.DUEÑOS_LIST);
+    await AsyncStorage.removeItem(STORAGE_KEYS.DUEÑO_DETAIL(id));
     return response.data;
   } catch (error) {
     console.error(`Error al actualizar dueño con ID ${id}:`, error);
@@ -291,9 +303,9 @@ export const updateDueño = async (id, dueñoData) => {
 export const deleteDueño = async (id) => {
   try {
     const response = await apiClient.delete(`dueño/dueños_delete/${id}`);
-    // Limpiar caché después de eliminar
-    await clearCacheItem(CACHE_KEYS.DUEÑOS_LIST);
-    await clearCacheItem(CACHE_KEYS.DUEÑO_DETAIL(id));
+    // Limpiar datos almacenados
+    await AsyncStorage.removeItem(STORAGE_KEYS.DUEÑOS_LIST);
+    await AsyncStorage.removeItem(STORAGE_KEYS.DUEÑO_DETAIL(id));
     return response.data;
   } catch (error) {
     console.error(`Error al eliminar dueño con ID ${id}:`, error);
@@ -301,35 +313,83 @@ export const deleteDueño = async (id) => {
   }
 };
 
-// Función para enviar la ubicación GPS de la mascota
+// Función para limpiar todos los datos almacenados
+export const clearAllStoredData = async () => {
+  try {
+    const keys = await AsyncStorage.getAllKeys();
+    const apiDataKeys = keys.filter(key => 
+      Object.values(STORAGE_KEYS).some(pattern => 
+        typeof pattern === 'function' 
+          ? key.startsWith(pattern('').split('_')[0])
+          : key.startsWith(pattern)
+      )
+    );
+    
+    if (apiDataKeys.length > 0) {
+      await AsyncStorage.multiRemove(apiDataKeys);
+      console.log(`Se eliminaron ${apiDataKeys.length} elementos almacenados`);
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('Error al limpiar datos almacenados:', error);
+    return false;
+  }
+};
+
 export const sendPetLocation = async (mascotaId, latitud, longitud) => {
   try {
-    console.log(`Enviando ubicación: mascota=${mascotaId}, lat=${latitud}, lon=${longitud}`);
-    console.log(`URL de destino: ${API_URL}/location/mobile/`);
+    // Imprimir para depuración los valores exactos recibidos
+    console.log('Valores recibidos en sendPetLocation:');
+    console.log('mascotaId:', mascotaId, 'tipo:', typeof mascotaId);
+    console.log('latitud:', latitud, 'tipo:', typeof latitud);
+    console.log('longitud:', longitud, 'tipo:', typeof longitud);
     
-    // Creamos un FormData para enviar los datos en formato de formulario
-    const formData = new FormData();
-    formData.append('mascota', mascotaId.toString());
-    formData.append('latitud', latitud.toString());  // Nombre correcto según el backend
-    formData.append('longitud', longitud.toString()); // Nombre correcto según el backend
+    // Asegurarnos de que los valores sean del tipo correcto
+    const idMascota = Number(mascotaId); // Convertir explícitamente a número
     
-    console.log('Datos enviados (FormData):', {mascota: mascotaId, latitud: latitud, longitud: longitud});
+    // Crear el objeto con los datos en el formato exacto que espera el backend
+    const locationData = {
+      mascota: idMascota,           // ID como número
+      latitud: parseFloat(latitud),  // Latitud como número decimal
+      longitud: parseFloat(longitud) // Longitud como número decimal
+    };
     
-    // Crear una instancia separada para esta petición con headers específicos
-    const response = await axios({
-      method: 'post',
-      url: `${API_URL}/location/mobile/`,
-      data: formData,
+    // Mostrar los datos exactos que se enviarán
+    console.log('Datos que se enviarán al backend:', JSON.stringify(locationData));
+    
+    // Hacer la petición POST con la URL correcta
+    const response = await fetch(`${API_URL}/location/mobile/`, {
+      method: 'POST',
       headers: {
-        'Content-Type': 'multipart/form-data',
-      }
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify(locationData)
     });
     
-    console.log('Respuesta del servidor:', response.data);
-    return response.data;
+    // Obtener el texto de la respuesta para depuración
+    const responseText = await response.text();
+    console.log('Respuesta del servidor (texto):', responseText);
+    
+    // Si la respuesta no es exitosa, lanzar un error
+    if (!response.ok) {
+      throw new Error(`Error ${response.status}: ${responseText}`);
+    }
+    
+    // Parsear la respuesta si es JSON
+    let data;
+    try {
+      data = JSON.parse(responseText);
+      console.log('Respuesta del servidor (parseada):', data);
+    } catch (e) {
+      console.log('La respuesta no es JSON válido');
+      return { success: true, message: responseText };
+    }
+    
+    return data;
   } catch (error) {
-    console.error(`Error al enviar ubicación de mascota con ID ${mascotaId}:`, error);
-    console.error('Detalles del error:', error.response ? error.response.data : 'Sin detalles');
+    console.error('Error al enviar ubicación de mascota:', error.message);
     throw error;
   }
 }; 
