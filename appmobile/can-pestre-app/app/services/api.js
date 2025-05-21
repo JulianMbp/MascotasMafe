@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // URL base de la API - Configurable
-export let API_URL = 'https://8d49-161-18-52-113.ngrok-free.app';  // URL predeterminada
+export let API_URL = 'https://47a4-190-242-58-130.ngrok-free.app';  // URL predeterminada
 
 // Variables en memoria para cacheo y control
 const apiCache = new Map();

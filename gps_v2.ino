@@ -14,6 +14,9 @@ char datoCmd = 0;
 // Modo NMEA - Cambiar a 0 para modo normal después de depurar
 #define NMEA 0  // Procesamiento normal de datos GPS
 
+// Versión del firmware
+#define VERSION "1.0.2"
+
 // ID de mascota (estático)
 const int ID_MASCOTA = 3;
 
@@ -24,17 +27,26 @@ char password[32] = "12345678";  // Contraseña de la red WiFi
 // Flag para indicar modo de operación
 bool usar_wifi = true;  // Se configurará a verdadero si la conexión es exitosa
 
-// Configuración MQTT (EMQX) - Ya no son const para poder modificarlas
+// Configuración MQTT (EMQX)
 char mqtt_server[50] = "z22e8be0.ala.us-east-1.emqxsl.com";  // Broker EMQX 
 int mqtt_port = 8883;                    // Puerto MQTT SSL/TLS
 char mqtt_user[32] = "julian";           // Usuario MQTT
 char mqtt_password[32] = "1234";         // Contraseña MQTT
 char mqtt_topic[50] = "ubicacion";       // Topic donde publicar
+char mqtt_system_topic[50] = "sistema";  // Topic para mensajes del sistema
 char mqtt_client_id[50] = "ESP32_Mascota_3"; // ID único para este dispositivo
 
 // Intervalos de envío de datos (milisegundos)
 const long intervalo_envio = 10000; // Enviar cada 10 segundos
 unsigned long ultimo_envio = 0;
+
+// Variables para reconexión MQTT
+unsigned long ultimo_intento_mqtt = 0;
+const long intervalo_reconexion = 5000; // 5 segundos entre intentos
+
+// Variables para ping/heartbeat
+unsigned long ultimo_heartbeat = 0;
+const long intervalo_heartbeat = 60000; // Enviar heartbeat cada minuto
 
 // Variables para GPS
 float ultimaLatitud = 0;
@@ -43,7 +55,6 @@ bool datosGPSValidos = false;
 int baudRateGPS = 9600;
 
 // Certificado raíz para emqxsl.com (DigiCert Global Root G2)
-// Obtenido de: https://www.digicert.com/kb/digicert-root-certificates.htm
 const char* root_ca = \
 "-----BEGIN CERTIFICATE-----\n" \
 "MIIDjjCCAnagAwIBAgIQAzrx5qcRqaC7KGSxHQn65TANBgkqhkiG9w0BAQsFADBh\n" \
@@ -75,6 +86,64 @@ TinyGPSPlus gps;
 
 //------------------------------------------------------------------------------------------------------------------------------------------
 
+// Callback para mensajes MQTT recibidos
+void callback(char* topic, byte* payload, unsigned int length) {
+  Serial.print("Mensaje recibido en topic: ");
+  Serial.println(topic);
+  
+  // Convertir payload a string
+  String mensaje = "";
+  for (int i = 0; i < length; i++) {
+    mensaje += (char)payload[i];
+  }
+  Serial.print("Contenido: ");
+  Serial.println(mensaje);
+  
+  // Si es un mensaje del sistema, procesarlo
+  if (String(topic) == mqtt_system_topic) {
+    procesarMensajeSistema(mensaje);
+  }
+}
+
+// Procesar comandos recibidos via MQTT
+void procesarMensajeSistema(String mensaje) {
+  // Crear buffer JSON
+  StaticJsonDocument<200> doc;
+  DeserializationError error = deserializeJson(doc, mensaje);
+  
+  if (error) {
+    Serial.print("Error parseando JSON: ");
+    Serial.println(error.c_str());
+    return;
+  }
+  
+  // Verificar si es un ping
+  if (doc.containsKey("comando") && String((const char*)doc["comando"]) == "ping") {
+    Serial.println("Comando PING recibido. Respondiendo...");
+    
+    // Crear respuesta
+    StaticJsonDocument<200> respuesta;
+    respuesta["comando"] = "pong";
+    respuesta["cliente_id"] = mqtt_client_id;
+    respuesta["version"] = VERSION;
+    respuesta["mascota_id"] = ID_MASCOTA;
+    respuesta["uptime"] = millis() / 1000; // Segundos desde inicio
+    
+    if (datosGPSValidos) {
+      respuesta["latitude"] = ultimaLatitud;
+      respuesta["longitude"] = ultimaLongitud;
+    }
+    
+    // Convertir a JSON y enviar
+    char buffer[256];
+    serializeJson(respuesta, buffer);
+    client.publish(mqtt_system_topic, buffer);
+    
+    Serial.print("Respuesta enviada: ");
+    Serial.println(buffer);
+  }
+}
+
 void setup() 
 {
   Serial.begin(115200);
@@ -83,6 +152,8 @@ void setup()
   delay(1000);
   
   Serial.println("\n\n=== Sistema GPS Inicializando ===");
+  Serial.print("Versión: ");
+  Serial.println(VERSION);
   
   // Iniciar GPS con baudios más comunes para módulos GPS
   neogps.begin(9600, SERIAL_8N1, RXD2, TXD2);
@@ -91,6 +162,9 @@ void setup()
   // Configurar certificado raíz para SSL
   espClient.setCACert(root_ca);
   Serial.println("Certificado SSL configurado");
+  
+  // Configurar callback para mensajes MQTT
+  client.setCallback(callback);
   
   // Conectar WiFi si hay credenciales
   if (strlen(ssid) > 0) {
@@ -109,6 +183,8 @@ void setup()
       Serial.println(mqtt_user);
       Serial.print("Topic: ");
       Serial.println(mqtt_topic);
+      Serial.print("Topic Sistema: ");
+      Serial.println(mqtt_system_topic);
     }
   }
   
@@ -131,17 +207,11 @@ void loop()
   // Verificar comandos por puerto serie
   verificarComandosSerial();
   
-  // Mantener conexión MQTT si WiFi está activo
-  if (usar_wifi) {
-    if (WiFi.status() != WL_CONNECTED) {
-      Serial.println("WiFi desconectado. Reintentando...");
-      conectarWiFi();
-    } else if (!client.connected()) {
-      reconnectMQTT();
-    }
-    
-    client.loop(); // Mantener la conexión MQTT activa
-  }
+  // Mantener conexión WiFi y MQTT
+  verificarConexiones();
+  
+  // Enviar heartbeat periódico
+  enviarHeartbeat();
   
   if (NMEA)
   {
@@ -204,19 +274,25 @@ void loop()
         Visualizacion_Serial();
       }
       
-      // Enviar datos si es tiempo y hay señal GPS válida
+      // Enviar datos periódicamente si es tiempo (con o sin señal GPS)
       unsigned long tiempoActual = millis();
-      if (tiempoActual - ultimo_envio >= intervalo_envio && datosGPSValidos) {
+      if (tiempoActual - ultimo_envio >= intervalo_envio) {
         if (usar_wifi && WiFi.status() == WL_CONNECTED && client.connected()) {
           enviarDatosGPS();
         } else {
           Serial.println("\n=== DATOS GPS ACTUALES (MODO LOCAL) ===");
           Serial.print("ID Mascota: ");
           Serial.println(ID_MASCOTA);
-          Serial.print("Lat: ");
-          Serial.println(ultimaLatitud, 6);
-          Serial.print("Lng: ");
-          Serial.println(ultimaLongitud, 6);
+          if (datosGPSValidos) {
+            Serial.print("Lat: ");
+            Serial.println(ultimaLatitud, 6);
+            Serial.print("Lng: ");
+            Serial.println(ultimaLongitud, 6);
+          } else {
+            Serial.println("Lat: 0");
+            Serial.println("Lng: 0");
+            Serial.println("Sin señal GPS válida");
+          }
           Serial.println("================================");
         }
         ultimo_envio = tiempoActual;
@@ -236,6 +312,64 @@ void loop()
 }
 
 //------------------------------------------------------------------------------------------------------------------------------------------
+
+// Función para verificar y mantener conexiones
+void verificarConexiones() {
+  // Verificar WiFi primero
+  if (usar_wifi && WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi desconectado. Reintentando...");
+    conectarWiFi();
+  }
+  
+  // Verificar conexión MQTT si WiFi está conectado
+  if (usar_wifi && WiFi.status() == WL_CONNECTED) {
+    if (!client.connected()) {
+      // Solo intentar reconectar cada X segundos para evitar sobrecarga
+      unsigned long tiempoActual = millis();
+      if (tiempoActual - ultimo_intento_mqtt >= intervalo_reconexion) {
+        ultimo_intento_mqtt = tiempoActual;
+        reconnectMQTT();
+      }
+    } else {
+      // Mantener la conexión MQTT procesando mensajes entrantes
+      client.loop();
+    }
+  }
+}
+
+// Enviar heartbeat periódicamente
+void enviarHeartbeat() {
+  if (!usar_wifi || WiFi.status() != WL_CONNECTED || !client.connected()) {
+    return;  // No enviar si no hay conexión
+  }
+  
+  unsigned long tiempoActual = millis();
+  if (tiempoActual - ultimo_heartbeat >= intervalo_heartbeat) {
+    ultimo_heartbeat = tiempoActual;
+    
+    // Crear JSON de heartbeat
+    StaticJsonDocument<200> doc;
+    doc["tipo"] = "heartbeat";
+    doc["cliente_id"] = mqtt_client_id;
+    doc["mascota"] = ID_MASCOTA;
+    doc["version"] = VERSION;
+    doc["uptime"] = tiempoActual / 1000;  // Segundos desde inicio
+    
+    if (datosGPSValidos) {
+      doc["latitude"] = ultimaLatitud;
+      doc["longitude"] = ultimaLongitud;
+    }
+    
+    // Enviar al topic del sistema
+    char buffer[256];
+    serializeJson(doc, buffer);
+    
+    Serial.print("Enviando heartbeat: ");
+    Serial.println(buffer);
+    
+    client.publish(mqtt_system_topic, buffer);
+  }
+}
 
 void verificarComandosSerial() {
   if (Serial.available()) {
@@ -267,6 +401,7 @@ void verificarComandosSerial() {
           if (conectarWiFi()) {
             Serial.println("Conexión exitosa a la nueva red WiFi");
             client.setServer(mqtt_server, mqtt_port);
+            client.setCallback(callback);
             usar_wifi = true;
           }
         }
@@ -295,6 +430,7 @@ void verificarComandosSerial() {
           mqtt_port = nuevoPuerto.toInt();
           
           client.setServer(mqtt_server, mqtt_port);
+          client.setCallback(callback);
           Serial.println("Servidor MQTT actualizado. Reconectando...");
           reconnectMQTT();
         }
@@ -381,6 +517,81 @@ void verificarComandosSerial() {
         enviarDatosGPS();
       }
     }
+    else if (command == "ping") {
+      // Enviar ping al broker
+      if (usar_wifi && WiFi.status() == WL_CONNECTED && client.connected()) {
+        StaticJsonDocument<200> doc;
+        doc["comando"] = "ping";
+        doc["cliente_id"] = mqtt_client_id;
+        doc["mascota"] = ID_MASCOTA;
+        
+        char buffer[256];
+        serializeJson(doc, buffer);
+        
+        Serial.print("Enviando ping al broker: ");
+        Serial.println(buffer);
+        
+        if (client.publish(mqtt_system_topic, buffer)) {
+          Serial.println("Ping enviado correctamente");
+        } else {
+          Serial.println("Error al enviar ping");
+        }
+      } else {
+        Serial.println("No se puede enviar ping, sin conexión MQTT");
+      }
+    }
+    else if (command == "status") {
+      // Mostrar estado actual
+      Serial.println("\n=== ESTADO DEL SISTEMA ===");
+      Serial.print("Versión: ");
+      Serial.println(VERSION);
+      Serial.print("WiFi: ");
+      Serial.println(WiFi.status() == WL_CONNECTED ? "Conectado" : "Desconectado");
+      if (WiFi.status() == WL_CONNECTED) {
+        Serial.print("  SSID: ");
+        Serial.println(WiFi.SSID());
+        Serial.print("  IP: ");
+        Serial.println(WiFi.localIP());
+        Serial.print("  RSSI: ");
+        Serial.print(WiFi.RSSI());
+        Serial.println(" dBm");
+      }
+      
+      Serial.print("MQTT: ");
+      Serial.println(client.connected() ? "Conectado" : "Desconectado");
+      if (client.connected()) {
+        Serial.print("  Broker: ");
+        Serial.print(mqtt_server);
+        Serial.print(":");
+        Serial.println(mqtt_port);
+        Serial.print("  Cliente ID: ");
+        Serial.println(mqtt_client_id);
+        Serial.print("  Topic: ");
+        Serial.println(mqtt_topic);
+      }
+      
+      Serial.print("GPS: ");
+      Serial.println(datosGPSValidos ? "Datos válidos" : "Sin datos válidos");
+      if (datosGPSValidos) {
+        Serial.print("  Lat: ");
+        Serial.println(ultimaLatitud, 6);
+        Serial.print("  Lng: ");
+        Serial.println(ultimaLongitud, 6);
+        Serial.print("  Satélites: ");
+        Serial.println(gps.satellites.value());
+      }
+      
+      Serial.print("Tiempo encendido: ");
+      unsigned long uptime = millis() / 1000;
+      Serial.print(uptime / 3600); // Horas
+      Serial.print("h ");
+      Serial.print((uptime % 3600) / 60); // Minutos
+      Serial.print("m ");
+      Serial.print(uptime % 60); // Segundos
+      Serial.println("s");
+      
+      Serial.println("========================");
+    }
     else if (command == "help") {
       Serial.println("\n=== Comandos disponibles ===");
       Serial.println("wifi,nombre_red,contraseña - Configura una nueva red WiFi");
@@ -390,6 +601,8 @@ void verificarComandosSerial() {
       Serial.println("gps,4800 - Cambia la velocidad del GPS a 4800 baudios");
       Serial.println("gps,9600 - Cambia la velocidad del GPS a 9600 baudios (estándar)");
       Serial.println("test - Envía datos de prueba (generados si no hay GPS)");
+      Serial.println("ping - Envía un mensaje de ping al broker MQTT");
+      Serial.println("status - Muestra el estado actual del sistema");
       Serial.println("help - Muestra este menú de ayuda");
     }
   }
@@ -492,6 +705,26 @@ void reconnectMQTT() {
     
     if (connected) {
       Serial.println("Conectado con éxito al broker MQTT!");
+      
+      // Suscribirse al topic de sistema para recibir comandos
+      client.subscribe(mqtt_system_topic);
+      Serial.print("Suscrito al topic de sistema: ");
+      Serial.println(mqtt_system_topic);
+      
+      // Enviar mensaje de estado al conectar
+      StaticJsonDocument<256> doc;
+      doc["tipo"] = "conexion";
+      doc["cliente_id"] = mqtt_client_id;
+      doc["mascota"] = ID_MASCOTA;
+      doc["version"] = VERSION;
+      doc["rssi"] = WiFi.RSSI();
+      
+      char buffer[256];
+      serializeJson(doc, buffer);
+      client.publish(mqtt_system_topic, buffer);
+      
+      Serial.print("Mensaje de conexión enviado: ");
+      Serial.println(buffer);
     } else {
       Serial.print("Error (");
       Serial.print(client.state());
@@ -524,16 +757,18 @@ void enviarDatosGPS() {
     }
   }
   
-  if (!datosGPSValidos) {
-    Serial.println("No hay datos GPS válidos para enviar");
-    return;
-  }
-  
   // Crear JSON con el formato solicitado
   StaticJsonDocument<128> doc;
   doc["mascota"] = ID_MASCOTA;
-  doc["latitude"] = ultimaLatitud;
-  doc["longitude"] = ultimaLongitud;
+  
+  if (!datosGPSValidos) {
+    Serial.println("No hay datos GPS válidos, enviando coordenadas (0,0)");
+    doc["latitude"] = 0;
+    doc["longitude"] = 0;
+  } else {
+    doc["latitude"] = ultimaLatitud;
+    doc["longitude"] = ultimaLongitud;
+  }
   
   char buffer[256];
   serializeJson(doc, buffer);
@@ -580,5 +815,6 @@ void Visualizacion_Serial(void)
   else
   {
     Serial.println("Sin señal GPS - Posiblemente en interior o necesita más tiempo");  
+    Serial.println("Se enviarán coordenadas (0,0) en el próximo intervalo");
   }  
-}
+} 
