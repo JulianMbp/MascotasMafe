@@ -140,8 +140,8 @@ def start_mqtt_bridge():
         
         # Configurar SSL/TLS
         context = ssl.create_default_context()
-        context.check_hostname = True
-        context.verify_mode = ssl.CERT_REQUIRED
+        context.check_hostname = False  # Desactivar verificación de hostname
+        context.verify_mode = ssl.CERT_NONE  # Desactivar verificación de certificado
         client.tls_set_context(context)
         
         # Asignar callbacks
@@ -153,7 +153,23 @@ def start_mqtt_bridge():
         
         # Conectar al broker
         logger.info(f"Intentando conectar a {MQTT_BROKER}:{MQTT_PORT}...")
-        client.connect(MQTT_BROKER, MQTT_PORT, 60)
+        try:
+            client.connect(MQTT_BROKER, MQTT_PORT, 60)
+        except Exception as e:
+            logger.error(f"❌ Error detallado de conexión MQTT: {type(e).__name__}: {str(e)}")
+            logger.error("Verificando conectividad...")
+            import socket
+            try:
+                socket_info = socket.getaddrinfo(MQTT_BROKER, MQTT_PORT)
+                logger.info(f"Info de resolución DNS: {socket_info}")
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.settimeout(10)
+                s.connect((MQTT_BROKER, MQTT_PORT))
+                s.close()
+                logger.info(f"✅ Conexión socket exitosa a {MQTT_BROKER}:{MQTT_PORT}")
+            except Exception as socket_error:
+                logger.error(f"❌ Error de socket: {type(socket_error).__name__}: {str(socket_error)}")
+            raise
         
         # Iniciar el loop en primer plano (blocking)
         logger.info("🔄 Iniciando loop MQTT...")

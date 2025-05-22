@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // URL base de la API - Configurable
-export let API_URL = 'https://47a4-190-242-58-130.ngrok-free.app';  // URL predeterminada
+export let API_URL = 'https://bc0e-190-242-58-130.ngrok-free.app';  // URL predeterminada
 
 // Variables en memoria para cacheo y control
 const apiCache = new Map();
@@ -301,93 +301,33 @@ export const clearAllCachedData = () => {
   lastFetchTimes.clear();
 };
 
-// Ubicación de mascotas
-let pendingLocations = [];
-
-export const sendPetLocation = async (mascotaId, latitud, longitud, retryCount = 0) => {
-  if (!mascotaId || latitud === undefined || longitud === undefined) {
-    console.error('Datos incompletos para enviar ubicación');
-    return { success: false, message: 'Datos incompletos' };
-  }
-
-  // Datos de la ubicación (formato correcto para el backend)
-  const locationData = {
-    mascota: Number(mascotaId),
-    latitud: latitud.toString(),
-    longitud: longitud.toString()
-  };
-
+// Ubicación de mascotas - Solo lectura, ya no se envía ubicación desde el celular
+/**
+ * Obtiene las ubicaciones de una mascota por su ID
+ * @param {number} mascotaId - ID de la mascota
+ * @param {number} minutos - Limitar a ubicaciones de los últimos X minutos (opcional)
+ * @param {boolean} forceRefresh - Forzar actualización ignorando caché
+ * @returns {Promise<Array>} - Lista de ubicaciones
+ */
+export const getPetLocations = async (mascotaId, minutos = 30, forceRefresh = false) => {
   try {
-    // CORREGIDO: URL correcta para enviar ubicación
-    console.log(`Enviando ubicación de mascota ${mascotaId} a: ${latitud}, ${longitud}`);
-    const response = await apiClient.post('location/mobile/', locationData, {
-      timeout: 5000 // timeout más corto para ubicaciones
-    });
-    
-    console.log('Ubicación enviada correctamente');
-    return { success: true, data: response.data };
+    return await fetchWithThrottle(
+      `pet_locations_${mascotaId}`,
+      `pet_locations_time_${mascotaId}`,
+      60 * 1000, // Refresco máximo cada 1 minuto
+      async () => {
+        console.log(`Obteniendo ubicaciones para mascota ID: ${mascotaId}`);
+        const response = await apiClient.get(`location/${mascotaId}/`, {
+          params: { minutos },
+          timeout: 10000 // 10 segundos de timeout
+        });
+        
+        return response.data || [];
+      },
+      forceRefresh
+    );
   } catch (error) {
-    console.error('Error al enviar ubicación:', error);
-    
-    // Reintento solo si es error de conexión y menos de 3 intentos
-    if (error.message && error.message.includes('network') && retryCount < 3) {
-      return new Promise(resolve => {
-        setTimeout(() => {
-          resolve(sendPetLocation(mascotaId, latitud, longitud, retryCount + 1));
-        }, 1000 * (retryCount + 1)); // Aumentamos el tiempo de espera con cada intento
-      });
-    }
-    
-    // Guardar para envío posterior
-    savePendingLocation(mascotaId, latitud, longitud);
-    return { success: false, error: error.message };
+    console.error(`Error al obtener ubicaciones de mascota ID ${mascotaId}:`, error);
+    return []; // Retornar array vacío en caso de error
   }
-};
-
-const savePendingLocation = (mascotaId, latitud, longitud) => {
-  pendingLocations.push({
-    mascota: Number(mascotaId),
-    latitud: latitud.toString(),
-    longitud: longitud.toString(),
-    timestamp: new Date().toISOString(),
-    createdAt: Date.now()
-  });
-  
-  // Limitar el número de ubicaciones pendientes
-  if (pendingLocations.length > 50) {
-    pendingLocations = pendingLocations.slice(-50);
-  }
-};
-
-export const sendPendingLocations = async () => {
-  if (pendingLocations.length === 0) return { success: true, sent: 0 };
-  
-  const locationsToSend = [...pendingLocations];
-  pendingLocations = []; // Vaciar lista antes de enviar para evitar duplicados
-  
-  const results = { success: true, sent: 0, failed: 0 };
-  
-  for (const location of locationsToSend) {
-    try {
-      // CORREGIDO: URL correcta para enviar ubicación pendiente
-      await apiClient.post('location/mobile/', {
-        mascota: location.mascota,
-        latitud: location.latitud,
-        longitud: location.longitud
-      });
-      
-      results.sent++;
-    } catch (error) {
-      savePendingLocation(
-        location.mascota,
-        location.latitud,
-        location.longitud
-      );
-      
-      results.failed++;
-      results.success = false;
-    }
-  }
-  
-  return results;
 }; 
